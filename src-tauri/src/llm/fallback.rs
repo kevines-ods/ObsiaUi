@@ -148,6 +148,61 @@ impl ProviderPool {
         }
         Err(last_error.unwrap_or(LlmError::ProviderUnavailable("All providers failed".into())))
     }
+
+    /// Récupère un provider par id (s'il est présent et pas en circuit open).
+    pub async fn get_by_id(&self, provider_id: &str) -> Option<Arc<dyn LlmProvider>> {
+        let providers = self.providers.read().await;
+        let breakers = self.circuit_breakers.read().await;
+        providers.iter().find(|p| p.id() == provider_id).cloned().filter(|p| {
+            breakers
+                .get(p.id())
+                .is_none_or(|cb| cb.state != CircuitState::Open)
+        })
+    }
+
+    /// Chat ciblé sur un provider précis (sélection explicite par l'UI).
+    pub async fn chat_with(
+        &self,
+        provider_id: &str,
+        req: ChatRequest,
+    ) -> Result<ChatResponse, LlmError> {
+        let provider = self
+            .get_by_id(provider_id)
+            .await
+            .ok_or_else(|| LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable")))?;
+        match provider.chat(req).await {
+            Ok(resp) => {
+                self.record_success(provider.id()).await;
+                Ok(resp)
+            }
+            Err(e) => {
+                self.record_failure(provider.id()).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Chat stream ciblé sur un provider précis.
+    pub async fn chat_stream_with(
+        &self,
+        provider_id: &str,
+        req: ChatRequest,
+    ) -> Result<TokenStream, LlmError> {
+        let provider = self
+            .get_by_id(provider_id)
+            .await
+            .ok_or_else(|| LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable")))?;
+        match provider.chat_stream(req).await {
+            Ok(stream) => {
+                self.record_success(provider.id()).await;
+                Ok(stream)
+            }
+            Err(e) => {
+                self.record_failure(provider.id()).await;
+                Err(e)
+            }
+        }
+    }
 }
 
 pub struct RetryPolicy {

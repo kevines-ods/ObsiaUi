@@ -12,9 +12,15 @@ export default function ChatZone() {
 
   const onSend = async () => {
     if(!input.trim()) return;
-    setMessages(m=>[...m, {role:"user", content: input}]);
-    const prompt = input; setInput("");
-    await send(prompt, "ollama", "llama3.2").catch(()=>{});
+    const userMsg: Msg = {role:"user", content: input};
+    const history = [...messages, userMsg];
+    setMessages(history);
+    setInput("");
+    await send(
+      history.map(m=>({role: m.role, content: m.content})),
+      "ollama",
+      "qwen3.5:0.8b"
+    ).catch(()=>{});
   };
 
   return (
