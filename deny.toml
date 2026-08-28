@@ -31,7 +31,13 @@ exceptions = [
 ]
 
 [advisories]
-# Les vulnérabilités connues (rustsec) font échouer le CI
+# Les vulnérabilités actives (rustsec) font échouer le CI
+vulnerability = "deny"
+# Les crates "unmaintained" (non maintenus mais SANS vulnérabilité active)
+# sont des warnings non bloquants : l'écosystème Tauri v2 dépend massivement
+# de bindings GTK3 non maintenus (webkit2gtk-4.1) — les refuser bloquerait
+# tout build sans apporter de sécurité réelle.
+unmaintained = "warn"
 yanked = "deny"
 ignore = [
     # RUSTSEC-2024-0413 + 0416 : bindings GTK3 "unmaintained" — dépendance
