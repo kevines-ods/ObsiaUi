@@ -6,7 +6,8 @@
 exclude = []
 
 [licenses]
-# Licences permissives autorisées (projet open-source, pas de copyleft sauf si requis)
+# Politique : tout ce qui n'est PAS dans `allow` est refusé par défaut
+# (les clés `deny`/`default` ont été retirées dans cargo-deny ≥ 0.14, PR #611)
 allow = [
     "MIT",
     "Apache-2.0",
@@ -20,18 +21,10 @@ allow = [
     "OpenSSL",
     "BSL-1.0",
 ]
-# Les licences copyleft/interdites sont refusées (AGPL, GPL, LGPL sauf exception explicitement ajoutée)
-deny = [
-    "AGPL-3.0",
-    "GPL-3.0",
-    "GPL-2.0",
-    "CC-BY-NC-4.0",
-]
 # Licence inconnue/non listée → refus (évite les fausses déclarations)
 unlicensed = "deny"
 confidence-threshold = 0.8
 allow-osi-fsf-free = "either"
-default = "deny"
 
 # Exceptions documentées si nécessaire (aucune pour l'instant)
 exceptions = [
