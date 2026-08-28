@@ -1,9 +1,9 @@
 use crate::llm::{
-    LlmProvider, ChatRequest, ChatResponse, ModelInfo,
+    ChatRequest, ChatResponse, ModelInfo,
     ProviderRegistry, ModelRegistry, ProviderPool, PoolStrategy,
     StreamingManager,
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;

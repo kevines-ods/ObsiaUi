@@ -1,10 +1,9 @@
 use crate::llm::provider::{LlmProvider, ModelInfo, ModelCapability, LlmError};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct ModelRegistry {

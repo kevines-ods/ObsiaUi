@@ -149,7 +149,7 @@ impl LlmProvider for GeminiProvider {
                 .send()
                 .await;
 
-            let mut resp = match resp {
+            let resp = match resp {
                 Ok(r) => r,
                 Err(e) => { let _ = tx.send(TokenEvent::Error(e.to_string())).await; return; }
             };

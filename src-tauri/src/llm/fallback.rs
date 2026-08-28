@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, Mutex};
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 pub struct ProviderPool {
     providers: Arc<RwLock<Vec<Arc<dyn LlmProvider>>>>,
@@ -52,7 +52,7 @@ impl ProviderPool {
         let breakers = self.circuit_breakers.read().await;
         providers.iter()
             .filter(|p| {
-                breakers.get(p.id()).map_or(true, |cb| cb.state != CircuitState::Open)
+                breakers.get(p.id()).is_none_or(|cb| cb.state != CircuitState::Open)
             })
             .cloned()
             .collect()

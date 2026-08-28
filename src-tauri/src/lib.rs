@@ -1,5 +1,4 @@
-use tauri::{Emitter, Manager};
-use crate::llm::{OllamaProvider, OpenAIProvider, AnthropicProvider, OpenRouterProvider, GeminiProvider};
+use tauri::Manager;
 use crate::commands::{
     list_providers, chat_stream, chat, llm_list_models, llm_health_check,
     scan_local_models, list_vault, get_backlinks,

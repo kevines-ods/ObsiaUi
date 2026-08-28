@@ -58,7 +58,6 @@ pub fn create_token_channel() -> (mpsc::Sender<TokenEvent>, TokenStream) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn test_token_channel() {

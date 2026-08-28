@@ -1,6 +1,5 @@
 use crate::llm::provider::{ChatRequest, ChatResponse, LlmError, LlmProvider, ModelInfo, ModelCapability, ModelPricing, TokenEvent, TokenStream};
 use async_trait::async_trait;
-use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -140,7 +139,7 @@ impl LlmProvider for AnthropicProvider {
                 .send()
                 .await;
 
-            let mut resp = match resp {
+            let resp = match resp {
                 Ok(r) => r,
                 Err(e) => { let _ = tx.send(TokenEvent::Error(e.to_string())).await; return; }
             };
@@ -154,8 +153,7 @@ impl LlmProvider for AnthropicProvider {
                     Ok(bytes) => {
                         buffer.push_str(&String::from_utf8_lossy(&bytes));
                         for line in buffer.lines() {
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
+                            if let Some(data) = line.strip_prefix("data: ") {
                                 if data == "[DONE]" {
                                     let _ = tx.send(TokenEvent::Done(ChatResponse {
                                         id: uuid::Uuid::new_v4().to_string(),
