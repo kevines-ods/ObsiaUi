@@ -1,0 +1,62 @@
+# Configuration cargo-deny pour OBSI (workspace build/)
+# Vérifiée par le job "Security Audit" du workflow CI.
+
+[graph]
+# Analyse le workspace complet
+exclude = []
+
+[licenses]
+# Licences permissives autorisées (projet open-source, pas de copyleft sauf si requis)
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+    "OpenSSL",
+    "BSL-1.0",
+]
+# Les licences copyleft/interdites sont refusées (AGPL, GPL, LGPL sauf exception explicitement ajoutée)
+deny = [
+    "AGPL-3.0",
+    "GPL-3.0",
+    "GPL-2.0",
+    "CC-BY-NC-4.0",
+]
+# Licence inconnue/non listée → refus (évite les fausses déclarations)
+unlicensed = "deny"
+confidence-threshold = 0.8
+allow-osi-fsf-free = "either"
+default = "deny"
+
+# Exceptions documentées si nécessaire (aucune pour l'instant)
+exceptions = [
+    # { name = "exemple-crate", version = "*", allow = ["License-Exception"] },
+]
+
+[advisories]
+# Les vulnérabilités connues (rustsec) font échouer le CI
+yanked = "deny"
+ignore = []
+
+[bans]
+# Cratas bannis pour raisons de sécurité/maintenance
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # { name = "crate-a-vulnerable", version = "<0.5.0" },
+]
+
+[sources]
+# Seuls crates.io et git sont autorisés (pas de registres inconnus)
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = []
+
+[output]
+# Format lisible pour les logs CI
+feature-depth = 1
