@@ -6,8 +6,9 @@
 exclude = []
 
 [licenses]
-# Politique : tout ce qui n'est PAS dans `allow` est refusé par défaut
-# (les clés `deny`/`default` ont été retirées dans cargo-deny ≥ 0.14, PR #611)
+# Politique (cargo-deny ≥ 0.14, PR #611) : tout ce qui n'est PAS dans `allow`
+# est refusé par défaut — `deny`, `unlicensed`, `allow-osi-fsf-free`, `default`
+# ont été retirés du format.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -21,10 +22,6 @@ allow = [
     "OpenSSL",
     "BSL-1.0",
 ]
-# Licence inconnue/non listée → refus (évite les fausses déclarations)
-unlicensed = "deny"
-confidence-threshold = 0.8
-allow-osi-fsf-free = "either"
 
 # Exceptions documentées si nécessaire (aucune pour l'instant)
 exceptions = [
