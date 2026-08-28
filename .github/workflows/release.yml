@@ -13,6 +13,7 @@ jobs:
     name: Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -28,20 +29,30 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - name: Install dependencies
+          cache-dependency-path: ./build/src/package-lock.json
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install frontend dependencies
         run: npm ci
-        working-directory: ./src-tauri
-      - name: Build Tauri
+        working-directory: ./build/src
+      - name: Build frontend (Vite)
+        run: npm run build
+        working-directory: ./build/src
+      - name: Build Tauri (bundle + release)
         uses: tauri-apps/tauri-action@v0
+        working-directory: ./build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing/notarization
+          # macOS signing / notarization — à configurer dans GitHub Secrets
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows signing
+          # Windows code signing — à configurer dans GitHub Secrets
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
