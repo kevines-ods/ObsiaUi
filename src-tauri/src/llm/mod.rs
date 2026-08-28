@@ -1,19 +1,19 @@
-pub mod provider;
-pub mod registry;
+pub mod anthropic;
 pub mod fallback;
-pub mod streaming;
+pub mod gemini;
 pub mod ollama;
 pub mod openai;
-pub mod anthropic;
 pub mod openrouter;
-pub mod gemini;
+pub mod provider;
+pub mod registry;
+pub mod streaming;
 
-pub use provider::{ChatRequest, ChatResponse, ModelInfo};
+pub use anthropic::AnthropicProvider;
+pub use fallback::{PoolStrategy, ProviderPool};
+pub use gemini::GeminiProvider;
 pub use ollama::OllamaProvider;
 pub use openai::OpenAIProvider;
-pub use anthropic::AnthropicProvider;
 pub use openrouter::OpenRouterProvider;
-pub use gemini::GeminiProvider;
+pub use provider::{ChatRequest, ChatResponse, ModelInfo};
 pub use registry::{ModelRegistry, ProviderRegistry};
-pub use fallback::{ProviderPool, PoolStrategy};
 pub use streaming::StreamingManager;

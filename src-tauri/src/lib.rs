@@ -1,12 +1,12 @@
-use tauri::Manager;
 use crate::commands::{
-    list_providers, chat_stream, chat, llm_list_models, llm_health_check,
-    scan_local_models, list_vault, get_backlinks,
-    init_provider_registry, init_model_registry, init_provider_pool,
+    chat, chat_stream, get_backlinks, init_model_registry, init_provider_pool,
+    init_provider_registry, list_providers, list_vault, llm_health_check, llm_list_models,
+    scan_local_models,
 };
+use tauri::Manager;
 
-mod llm;
 mod commands;
+mod llm;
 
 #[tauri::command]
 fn greet(name: &str) -> String {

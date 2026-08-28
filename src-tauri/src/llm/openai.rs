@@ -1,9 +1,12 @@
-use crate::llm::provider::{ChatRequest, ChatResponse, LlmError, LlmProvider, ModelInfo, ModelCapability, ModelPricing, TokenEvent, TokenStream};
+use crate::llm::provider::{
+    ChatRequest, ChatResponse, LlmError, LlmProvider, ModelCapability, ModelInfo, ModelPricing,
+    TokenEvent, TokenStream,
+};
 use async_openai::{
     config::OpenAIConfig,
     types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs, 
-        CreateChatCompletionRequestArgs, Role
+        ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
+        CreateChatCompletionRequestArgs, Role,
     },
     Client as OpenAIClient,
 };
@@ -23,7 +26,10 @@ impl OpenAIProvider {
         let key = api_key.into();
         let config = OpenAIConfig::new().with_api_key(key.clone());
         let client = Arc::new(OpenAIClient::with_config(config));
-        Self { client, api_key: key }
+        Self {
+            client,
+            api_key: key,
+        }
     }
 
     pub fn from_env() -> Result<Self, LlmError> {
@@ -35,8 +41,12 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAIProvider {
-    fn id(&self) -> &str { "openai" }
-    fn name(&self) -> &str { "OpenAI" }
+    fn id(&self) -> &str {
+        "openai"
+    }
+    fn name(&self) -> &str {
+        "OpenAI"
+    }
 
     #[instrument(skip(self))]
     async fn health_check(&self) -> Result<(), LlmError> {
@@ -50,7 +60,10 @@ impl LlmProvider for OpenAIProvider {
                 .into()])
             .build()
             .map_err(|e| LlmError::Internal(e.to_string()))?;
-        self.client.chat().create(req).await
+        self.client
+            .chat()
+            .create(req)
+            .await
             .map(|_| {
                 info!("OpenAI health check OK");
             })
@@ -59,31 +72,83 @@ impl LlmProvider for OpenAIProvider {
 
     #[instrument(skip(self))]
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let models = self.client.models().list().await
+        let models = self
+            .client
+            .models()
+            .list()
+            .await
             .map_err(|e| LlmError::ApiError(e.to_string()))?;
-        Ok(models.data.into_iter().filter_map(|m| {
-            let id = m.id;
-            if id.starts_with("gpt") || id.starts_with("o1") {
-                let (context, pricing) = match id.as_str() {
-                    "gpt-4o" | "gpt-4o-2024-08-06" => (128_000, Some(ModelPricing { input_per_1k: 0.005, output_per_1k: 0.015, currency: "USD".into() })),
-                    "gpt-4o-mini" => (128_000, Some(ModelPricing { input_per_1k: 0.00015, output_per_1k: 0.0006, currency: "USD".into() })),
-                    "gpt-4-turbo" => (128_000, Some(ModelPricing { input_per_1k: 0.01, output_per_1k: 0.03, currency: "USD".into() })),
-                    "gpt-3.5-turbo" => (16_385, Some(ModelPricing { input_per_1k: 0.0005, output_per_1k: 0.0015, currency: "USD".into() })),
-                    "o1-preview" => (128_000, Some(ModelPricing { input_per_1k: 0.015, output_per_1k: 0.06, currency: "USD".into() })),
-                    "o1-mini" => (128_000, Some(ModelPricing { input_per_1k: 0.003, output_per_1k: 0.012, currency: "USD".into() })),
-                    _ => (4096, None),
-                };
-                Some(ModelInfo {
-                    id: id.clone(),
-                    name: id,
-                    provider: "openai".to_string(),
-                    context_window: context,
-                    capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse],
-                    pricing,
-                    local_path: None,
-                })
-            } else { None }
-        }).collect())
+        Ok(models
+            .data
+            .into_iter()
+            .filter_map(|m| {
+                let id = m.id;
+                if id.starts_with("gpt") || id.starts_with("o1") {
+                    let (context, pricing) = match id.as_str() {
+                        "gpt-4o" | "gpt-4o-2024-08-06" => (
+                            128_000,
+                            Some(ModelPricing {
+                                input_per_1k: 0.005,
+                                output_per_1k: 0.015,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        "gpt-4o-mini" => (
+                            128_000,
+                            Some(ModelPricing {
+                                input_per_1k: 0.00015,
+                                output_per_1k: 0.0006,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        "gpt-4-turbo" => (
+                            128_000,
+                            Some(ModelPricing {
+                                input_per_1k: 0.01,
+                                output_per_1k: 0.03,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        "gpt-3.5-turbo" => (
+                            16_385,
+                            Some(ModelPricing {
+                                input_per_1k: 0.0005,
+                                output_per_1k: 0.0015,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        "o1-preview" => (
+                            128_000,
+                            Some(ModelPricing {
+                                input_per_1k: 0.015,
+                                output_per_1k: 0.06,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        "o1-mini" => (
+                            128_000,
+                            Some(ModelPricing {
+                                input_per_1k: 0.003,
+                                output_per_1k: 0.012,
+                                currency: "USD".into(),
+                            }),
+                        ),
+                        _ => (4096, None),
+                    };
+                    Some(ModelInfo {
+                        id: id.clone(),
+                        name: id,
+                        provider: "openai".to_string(),
+                        context_window: context,
+                        capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse],
+                        pricing,
+                        local_path: None,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect())
     }
 
     #[instrument(skip(self, req))]
@@ -91,20 +156,24 @@ impl LlmProvider for OpenAIProvider {
         let (tx, rx) = mpsc::channel(100);
         let client = self.client.clone();
         let model = req.model.clone();
-        let messages: Vec<ChatCompletionRequestMessage> = req.messages.into_iter().map(|m| {
-            let role = match m.role.as_str() {
-                "system" => Role::System,
-                "user" => Role::User,
-                "assistant" => Role::Assistant,
-                _ => Role::User,
-            };
-            ChatCompletionRequestUserMessageArgs::default()
-                .role(role)
-                .content(m.content)
-                .build()
-                .unwrap()
-                .into()
-        }).collect();
+        let messages: Vec<ChatCompletionRequestMessage> = req
+            .messages
+            .into_iter()
+            .map(|m| {
+                let role = match m.role.as_str() {
+                    "system" => Role::System,
+                    "user" => Role::User,
+                    "assistant" => Role::Assistant,
+                    _ => Role::User,
+                };
+                ChatCompletionRequestUserMessageArgs::default()
+                    .role(role)
+                    .content(m.content)
+                    .build()
+                    .unwrap()
+                    .into()
+            })
+            .collect();
 
         tokio::spawn(async move {
             let mut binding = CreateChatCompletionRequestArgs::default();
@@ -141,20 +210,25 @@ impl LlmProvider for OpenAIProvider {
                                         let _ = tx.send(TokenEvent::Token(content.clone())).await;
                                     }
                                     if choice.finish_reason.is_some() {
-                                        let _ = tx.send(TokenEvent::Done(ChatResponse {
-                                            id: c.id,
-                                            model: c.model,
-                                            choices: vec![crate::llm::provider::ChatChoice {
-                                                index: 0,
-                                                message: crate::llm::provider::ChatMessage {
-                                                    role: "assistant".to_string(),
-                                                    content: full_content,
-                                                    name: None,
-                                                },
-                                                finish_reason: choice.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-                                            }],
-                                            usage: None,
-                                        })).await;
+                                        let _ = tx
+                                            .send(TokenEvent::Done(ChatResponse {
+                                                id: c.id,
+                                                model: c.model,
+                                                choices: vec![crate::llm::provider::ChatChoice {
+                                                    index: 0,
+                                                    message: crate::llm::provider::ChatMessage {
+                                                        role: "assistant".to_string(),
+                                                        content: full_content,
+                                                        name: None,
+                                                    },
+                                                    finish_reason: choice
+                                                        .finish_reason
+                                                        .as_ref()
+                                                        .map(|f| format!("{:?}", f)),
+                                                }],
+                                                usage: None,
+                                            }))
+                                            .await;
                                         break;
                                     }
                                 }
@@ -177,20 +251,24 @@ impl LlmProvider for OpenAIProvider {
 
     #[instrument(skip(self, req))]
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
-        let messages: Vec<ChatCompletionRequestMessage> = req.messages.into_iter().map(|m| {
-            let role = match m.role.as_str() {
-                "system" => Role::System,
-                "user" => Role::User,
-                "assistant" => Role::Assistant,
-                _ => Role::User,
-            };
-            ChatCompletionRequestUserMessageArgs::default()
-                .role(role)
-                .content(m.content)
-                .build()
-                .unwrap()
-                .into()
-        }).collect();
+        let messages: Vec<ChatCompletionRequestMessage> = req
+            .messages
+            .into_iter()
+            .map(|m| {
+                let role = match m.role.as_str() {
+                    "system" => Role::System,
+                    "user" => Role::User,
+                    "assistant" => Role::Assistant,
+                    _ => Role::User,
+                };
+                ChatCompletionRequestUserMessageArgs::default()
+                    .role(role)
+                    .content(m.content)
+                    .build()
+                    .unwrap()
+                    .into()
+            })
+            .collect();
 
         let mut binding = CreateChatCompletionRequestArgs::default();
         let mut request_builder = binding
@@ -206,10 +284,17 @@ impl LlmProvider for OpenAIProvider {
             .build()
             .map_err(|e| LlmError::Internal(e.to_string()))?;
 
-        let resp = self.client.chat().create(request).await
+        let resp = self
+            .client
+            .chat()
+            .create(request)
+            .await
             .map_err(|e| LlmError::ApiError(e.to_string()))?;
 
-        let choice = resp.choices.first().ok_or(LlmError::Internal("No choices".into()))?;
+        let choice = resp
+            .choices
+            .first()
+            .ok_or(LlmError::Internal("No choices".into()))?;
         Ok(ChatResponse {
             id: resp.id,
             model: resp.model,

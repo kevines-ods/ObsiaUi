@@ -1,7 +1,7 @@
-use crate::llm::provider::{TokenEvent, TokenStream, LlmError};
+use crate::llm::provider::{LlmError, TokenEvent, TokenStream};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
-use tracing::{instrument};
+use tracing::instrument;
 
 pub struct StreamingManager {
     app_handle: AppHandle,
@@ -17,16 +17,19 @@ impl StreamingManager {
         while let Some(event) = rx.recv().await {
             match event {
                 TokenEvent::Token(token) => {
-                    self.app_handle.emit("llm:token", token)
+                    self.app_handle
+                        .emit("llm:token", token)
                         .map_err(|e| LlmError::StreamError(e.to_string()))?;
                 }
                 TokenEvent::Done(response) => {
-                    self.app_handle.emit("llm:done", response)
+                    self.app_handle
+                        .emit("llm:done", response)
                         .map_err(|e| LlmError::StreamError(e.to_string()))?;
                     break;
                 }
                 TokenEvent::Error(err) => {
-                    self.app_handle.emit("llm:error", &err)
+                    self.app_handle
+                        .emit("llm:error", &err)
                         .map_err(|e| LlmError::StreamError(e.to_string()))?;
                     return Err(LlmError::StreamError(err));
                 }
@@ -36,17 +39,20 @@ impl StreamingManager {
     }
 
     pub fn emit_token(&self, token: String) -> Result<(), LlmError> {
-        self.app_handle.emit("llm:token", token)
+        self.app_handle
+            .emit("llm:token", token)
             .map_err(|e| LlmError::StreamError(e.to_string()))
     }
 
     pub fn emit_done(&self, response: crate::llm::provider::ChatResponse) -> Result<(), LlmError> {
-        self.app_handle.emit("llm:done", response)
+        self.app_handle
+            .emit("llm:done", response)
             .map_err(|e| LlmError::StreamError(e.to_string()))
     }
 
     pub fn emit_error(&self, error: String) -> Result<(), LlmError> {
-        self.app_handle.emit("llm:error", error)
+        self.app_handle
+            .emit("llm:error", error)
             .map_err(|e| LlmError::StreamError(e.to_string()))
     }
 }
@@ -69,7 +75,9 @@ mod tests {
             model: "test".into(),
             choices: vec![],
             usage: None,
-        })).await.unwrap();
+        }))
+        .await
+        .unwrap();
 
         let mut tokens = Vec::new();
         while let Some(event) = rx.recv().await {

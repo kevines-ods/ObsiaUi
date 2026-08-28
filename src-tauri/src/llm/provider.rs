@@ -109,6 +109,10 @@ pub trait LlmProvider: Send + Sync {
     async fn health_check(&self) -> Result<(), LlmError>;
     fn id(&self) -> &str;
     fn name(&self) -> &str;
-    fn supports_streaming(&self) -> bool { true }
-    fn supported_capabilities(&self) -> Vec<ModelCapability> { vec![ModelCapability::Chat] }
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+    fn supported_capabilities(&self) -> Vec<ModelCapability> {
+        vec![ModelCapability::Chat]
+    }
 }

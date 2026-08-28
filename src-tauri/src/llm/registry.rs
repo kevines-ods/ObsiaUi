@@ -1,4 +1,4 @@
-use crate::llm::provider::{LlmProvider, ModelInfo, ModelCapability, LlmError};
+use crate::llm::provider::{LlmError, LlmProvider, ModelCapability, ModelInfo};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,7 +41,8 @@ impl ModelRegistry {
 
     pub async fn list_by_provider(&self, provider: &str) -> Vec<ModelInfo> {
         let models = self.models.read().await;
-        models.values()
+        models
+            .values()
             .filter(|m| m.provider == provider)
             .cloned()
             .collect()
@@ -49,7 +50,8 @@ impl ModelRegistry {
 
     pub async fn list_by_capability(&self, capability: ModelCapability) -> Vec<ModelInfo> {
         let models = self.models.read().await;
-        models.values()
+        models
+            .values()
             .filter(|m| m.capabilities.contains(&capability))
             .cloned()
             .collect()
@@ -81,10 +83,13 @@ impl ModelRegistry {
     async fn parse_local_model(&self, path: &Path) -> Option<ModelInfo> {
         let file_name = path.file_stem()?.to_str()?;
         let ext = path.extension()?.to_str()?;
-        
+
         let (context_window, capabilities) = match ext {
             "gguf" => (4096, vec![ModelCapability::Chat]),
-            "safetensors" => (8192, vec![ModelCapability::Chat, ModelCapability::Embedding]),
+            "safetensors" => (
+                8192,
+                vec![ModelCapability::Chat, ModelCapability::Embedding],
+            ),
             _ => return None,
         };
 

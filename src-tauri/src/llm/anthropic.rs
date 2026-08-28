@@ -1,4 +1,7 @@
-use crate::llm::provider::{ChatRequest, ChatResponse, LlmError, LlmProvider, ModelInfo, ModelCapability, ModelPricing, TokenEvent, TokenStream};
+use crate::llm::provider::{
+    ChatRequest, ChatResponse, LlmError, LlmProvider, ModelCapability, ModelInfo, ModelPricing,
+    TokenEvent, TokenStream,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -62,7 +65,11 @@ impl AnthropicProvider {
     pub fn new(api_key: impl Into<String>) -> Self {
         let key = api_key.into();
         let client = Arc::new(Client::new());
-        Self { client, api_key: key, base_url: "https://api.anthropic.com".to_string() }
+        Self {
+            client,
+            api_key: key,
+            base_url: "https://api.anthropic.com".to_string(),
+        }
     }
 
     pub fn from_env() -> Result<Self, LlmError> {
@@ -74,19 +81,28 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
-    fn id(&self) -> &str { "anthropic" }
-    fn name(&self) -> &str { "Anthropic" }
+    fn id(&self) -> &str {
+        "anthropic"
+    }
+    fn name(&self) -> &str {
+        "Anthropic"
+    }
 
     #[instrument(skip(self))]
     async fn health_check(&self) -> Result<(), LlmError> {
         let req = AnthropicRequest {
             model: "claude-3-haiku-20240307".to_string(),
-            messages: vec![AnthropicMessage { role: "user".to_string(), content: "ping".to_string() }],
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: "ping".to_string(),
+            }],
             max_tokens: 1,
             temperature: None,
             stream: false,
         };
-        let resp = self.client.post(format!("{}/v1/messages", self.base_url))
+        let resp = self
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&req)
@@ -97,16 +113,64 @@ impl LlmProvider for AnthropicProvider {
             info!("Anthropic health check OK");
             Ok(())
         } else {
-            Err(LlmError::ProviderUnavailable("Anthropic not responding".into()))
+            Err(LlmError::ProviderUnavailable(
+                "Anthropic not responding".into(),
+            ))
         }
     }
 
     #[instrument(skip(self))]
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         Ok(vec![
-            ModelInfo { id: "claude-3-5-sonnet-20241022".into(), name: "Claude 3.5 Sonnet".into(), provider: "anthropic".into(), context_window: 200_000, capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse, ModelCapability::Vision, ModelCapability::Reasoning], pricing: Some(ModelPricing { input_per_1k: 0.003, output_per_1k: 0.015, currency: "USD".into() }), local_path: None },
-            ModelInfo { id: "claude-3-5-haiku-20241022".into(), name: "Claude 3.5 Haiku".into(), provider: "anthropic".into(), context_window: 200_000, capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse], pricing: Some(ModelPricing { input_per_1k: 0.0008, output_per_1k: 0.004, currency: "USD".into() }), local_path: None },
-            ModelInfo { id: "claude-3-opus-20240229".into(), name: "Claude 3 Opus".into(), provider: "anthropic".into(), context_window: 200_000, capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse, ModelCapability::Vision, ModelCapability::Reasoning], pricing: Some(ModelPricing { input_per_1k: 0.015, output_per_1k: 0.075, currency: "USD".into() }), local_path: None },
+            ModelInfo {
+                id: "claude-3-5-sonnet-20241022".into(),
+                name: "Claude 3.5 Sonnet".into(),
+                provider: "anthropic".into(),
+                context_window: 200_000,
+                capabilities: vec![
+                    ModelCapability::Chat,
+                    ModelCapability::ToolUse,
+                    ModelCapability::Vision,
+                    ModelCapability::Reasoning,
+                ],
+                pricing: Some(ModelPricing {
+                    input_per_1k: 0.003,
+                    output_per_1k: 0.015,
+                    currency: "USD".into(),
+                }),
+                local_path: None,
+            },
+            ModelInfo {
+                id: "claude-3-5-haiku-20241022".into(),
+                name: "Claude 3.5 Haiku".into(),
+                provider: "anthropic".into(),
+                context_window: 200_000,
+                capabilities: vec![ModelCapability::Chat, ModelCapability::ToolUse],
+                pricing: Some(ModelPricing {
+                    input_per_1k: 0.0008,
+                    output_per_1k: 0.004,
+                    currency: "USD".into(),
+                }),
+                local_path: None,
+            },
+            ModelInfo {
+                id: "claude-3-opus-20240229".into(),
+                name: "Claude 3 Opus".into(),
+                provider: "anthropic".into(),
+                context_window: 200_000,
+                capabilities: vec![
+                    ModelCapability::Chat,
+                    ModelCapability::ToolUse,
+                    ModelCapability::Vision,
+                    ModelCapability::Reasoning,
+                ],
+                pricing: Some(ModelPricing {
+                    input_per_1k: 0.015,
+                    output_per_1k: 0.075,
+                    currency: "USD".into(),
+                }),
+                local_path: None,
+            },
         ])
     }
 
@@ -117,10 +181,19 @@ impl LlmProvider for AnthropicProvider {
         let api_key = self.api_key.clone();
         let base_url = self.base_url.clone();
         let model = req.model.clone();
-        let messages: Vec<AnthropicMessage> = req.messages.into_iter().map(|m| AnthropicMessage {
-            role: if m.role == "assistant" { "assistant" } else { "user" }.to_string(),
-            content: m.content,
-        }).collect();
+        let messages: Vec<AnthropicMessage> = req
+            .messages
+            .into_iter()
+            .map(|m| AnthropicMessage {
+                role: if m.role == "assistant" {
+                    "assistant"
+                } else {
+                    "user"
+                }
+                .to_string(),
+                content: m.content,
+            })
+            .collect();
         let max_tokens = req.max_tokens.unwrap_or(4096);
 
         tokio::spawn(async move {
@@ -132,7 +205,8 @@ impl LlmProvider for AnthropicProvider {
                 stream: true,
             };
 
-            let resp = client.post(format!("{}/v1/messages", base_url))
+            let resp = client
+                .post(format!("{}/v1/messages", base_url))
                 .header("x-api-key", &api_key)
                 .header("anthropic-version", "2023-06-01")
                 .json(&request)
@@ -141,7 +215,10 @@ impl LlmProvider for AnthropicProvider {
 
             let resp = match resp {
                 Ok(r) => r,
-                Err(e) => { let _ = tx.send(TokenEvent::Error(e.to_string())).await; return; }
+                Err(e) => {
+                    let _ = tx.send(TokenEvent::Error(e.to_string())).await;
+                    return;
+                }
             };
 
             let mut full_content = String::new();
@@ -155,19 +232,27 @@ impl LlmProvider for AnthropicProvider {
                         for line in buffer.lines() {
                             if let Some(data) = line.strip_prefix("data: ") {
                                 if data == "[DONE]" {
-                                    let _ = tx.send(TokenEvent::Done(ChatResponse {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        model: request.model.clone(),
-                                        choices: vec![crate::llm::provider::ChatChoice {
-                                            index: 0,
-                                            message: crate::llm::provider::ChatMessage { role: "assistant".into(), content: full_content, name: None },
-                                            finish_reason: Some("stop".into()),
-                                        }],
-                                        usage: None,
-                                    })).await;
+                                    let _ = tx
+                                        .send(TokenEvent::Done(ChatResponse {
+                                            id: uuid::Uuid::new_v4().to_string(),
+                                            model: request.model.clone(),
+                                            choices: vec![crate::llm::provider::ChatChoice {
+                                                index: 0,
+                                                message: crate::llm::provider::ChatMessage {
+                                                    role: "assistant".into(),
+                                                    content: full_content,
+                                                    name: None,
+                                                },
+                                                finish_reason: Some("stop".into()),
+                                            }],
+                                            usage: None,
+                                        }))
+                                        .await;
                                     return;
                                 }
-                                if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
+                                if let Ok(event) =
+                                    serde_json::from_str::<AnthropicStreamEvent>(data)
+                                {
                                     if let Some(delta) = event.delta {
                                         if let Some(text) = delta.text {
                                             full_content.push_str(&text);
@@ -179,7 +264,10 @@ impl LlmProvider for AnthropicProvider {
                         }
                         buffer.clear();
                     }
-                    Err(e) => { let _ = tx.send(TokenEvent::Error(e.to_string())).await; return; }
+                    Err(e) => {
+                        let _ = tx.send(TokenEvent::Error(e.to_string())).await;
+                        return;
+                    }
                 }
             }
         });
@@ -189,10 +277,19 @@ impl LlmProvider for AnthropicProvider {
 
     #[instrument(skip(self, req))]
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
-        let messages: Vec<AnthropicMessage> = req.messages.into_iter().map(|m| AnthropicMessage {
-            role: if m.role == "assistant" { "assistant" } else { "user" }.to_string(),
-            content: m.content,
-        }).collect();
+        let messages: Vec<AnthropicMessage> = req
+            .messages
+            .into_iter()
+            .map(|m| AnthropicMessage {
+                role: if m.role == "assistant" {
+                    "assistant"
+                } else {
+                    "user"
+                }
+                .to_string(),
+                content: m.content,
+            })
+            .collect();
 
         let request = AnthropicRequest {
             model: req.model,
@@ -202,7 +299,9 @@ impl LlmProvider for AnthropicProvider {
             stream: false,
         };
 
-        let resp = self.client.post(format!("{}/v1/messages", self.base_url))
+        let resp = self
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&request)
@@ -210,7 +309,9 @@ impl LlmProvider for AnthropicProvider {
             .await
             .map_err(|e| LlmError::ApiError(e.to_string()))?;
 
-        let data: AnthropicResponse = resp.json().await
+        let data: AnthropicResponse = resp
+            .json()
+            .await
             .map_err(|e| LlmError::ApiError(e.to_string()))?;
 
         Ok(ChatResponse {
@@ -220,7 +321,11 @@ impl LlmProvider for AnthropicProvider {
                 index: 0,
                 message: crate::llm::provider::ChatMessage {
                     role: "assistant".to_string(),
-                    content: data.content.first().map(|c| c.text.clone()).unwrap_or_default(),
+                    content: data
+                        .content
+                        .first()
+                        .map(|c| c.text.clone())
+                        .unwrap_or_default(),
                     name: None,
                 },
                 finish_reason: data.stop_reason,

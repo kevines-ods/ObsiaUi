@@ -1,8 +1,8 @@
-use crate::llm::provider::{LlmProvider, ChatRequest, ChatResponse, LlmError, TokenStream};
+use crate::llm::provider::{ChatRequest, ChatResponse, LlmError, LlmProvider, TokenStream};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 
 pub struct ProviderPool {
@@ -50,9 +50,12 @@ impl ProviderPool {
     pub async fn get_available(&self) -> Vec<Arc<dyn LlmProvider>> {
         let providers = self.providers.read().await;
         let breakers = self.circuit_breakers.read().await;
-        providers.iter()
+        providers
+            .iter()
             .filter(|p| {
-                breakers.get(p.id()).is_none_or(|cb| cb.state != CircuitState::Open)
+                breakers
+                    .get(p.id())
+                    .is_none_or(|cb| cb.state != CircuitState::Open)
             })
             .cloned()
             .collect()
@@ -68,13 +71,15 @@ impl ProviderPool {
 
     async fn record_failure(&self, provider_id: &str) {
         let mut breakers = self.circuit_breakers.write().await;
-        let cb = breakers.entry(provider_id.to_string()).or_insert(CircuitBreaker {
-            failures: 0,
-            last_failure: None,
-            state: CircuitState::Closed,
-            threshold: 5,
-            timeout: Duration::from_secs(30),
-        });
+        let cb = breakers
+            .entry(provider_id.to_string())
+            .or_insert(CircuitBreaker {
+                failures: 0,
+                last_failure: None,
+                state: CircuitState::Closed,
+                threshold: 5,
+                timeout: Duration::from_secs(30),
+            });
         cb.failures += 1;
         cb.last_failure = Some(Instant::now());
         if cb.failures >= cb.threshold {
@@ -86,7 +91,9 @@ impl ProviderPool {
     pub async fn chat_with_fallback(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
         let providers = self.get_available().await;
         if providers.is_empty() {
-            return Err(LlmError::ProviderUnavailable("No available providers".into()));
+            return Err(LlmError::ProviderUnavailable(
+                "No available providers".into(),
+            ));
         }
 
         let mut last_error = None;
@@ -99,17 +106,26 @@ impl ProviderPool {
                 Err(e) => {
                     self.record_failure(provider.id()).await;
                     last_error = Some(e);
-                    warn!("Provider {} failed: {:?}, trying next", provider.id(), last_error);
+                    warn!(
+                        "Provider {} failed: {:?}, trying next",
+                        provider.id(),
+                        last_error
+                    );
                 }
             }
         }
         Err(last_error.unwrap_or(LlmError::ProviderUnavailable("All providers failed".into())))
     }
 
-    pub async fn chat_stream_with_fallback(&self, req: ChatRequest) -> Result<TokenStream, LlmError> {
+    pub async fn chat_stream_with_fallback(
+        &self,
+        req: ChatRequest,
+    ) -> Result<TokenStream, LlmError> {
         let providers = self.get_available().await;
         if providers.is_empty() {
-            return Err(LlmError::ProviderUnavailable("No available providers".into()));
+            return Err(LlmError::ProviderUnavailable(
+                "No available providers".into(),
+            ));
         }
 
         let mut last_error = None;
@@ -122,7 +138,11 @@ impl ProviderPool {
                 Err(e) => {
                     self.record_failure(provider.id()).await;
                     last_error = Some(e);
-                    warn!("Provider {} stream failed: {:?}, trying next", provider.id(), last_error);
+                    warn!(
+                        "Provider {} stream failed: {:?}, trying next",
+                        provider.id(),
+                        last_error
+                    );
                 }
             }
         }
@@ -159,10 +179,17 @@ impl RetryPolicy {
             match f().await {
                 Ok(result) => return Ok(result),
                 Err(e) if attempt < self.max_retries && self.is_retryable(&e) => {
-                    warn!("Attempt {} failed: {:?}, retrying in {:?}", attempt + 1, e, delay);
+                    warn!(
+                        "Attempt {} failed: {:?}, retrying in {:?}",
+                        attempt + 1,
+                        e,
+                        delay
+                    );
                     tokio::time::sleep(delay).await;
                     delay = std::cmp::min(
-                        Duration::from_millis((delay.as_millis() as f64 * self.backoff_multiplier) as u64),
+                        Duration::from_millis(
+                            (delay.as_millis() as f64 * self.backoff_multiplier) as u64,
+                        ),
                         self.max_delay,
                     );
                 }
@@ -173,18 +200,22 @@ impl RetryPolicy {
     }
 
     fn is_retryable(&self, error: &LlmError) -> bool {
-        matches!(error, 
-            LlmError::ProviderUnavailable(_) | 
-            LlmError::RateLimited(_) | 
-            LlmError::Timeout(_) |
-            LlmError::ApiError(_)
+        matches!(
+            error,
+            LlmError::ProviderUnavailable(_)
+                | LlmError::RateLimited(_)
+                | LlmError::Timeout(_)
+                | LlmError::ApiError(_)
         )
     }
 }
 
 #[async_trait]
 pub trait LoadBalancer: Send + Sync {
-    async fn select_provider(&self, providers: &[Arc<dyn LlmProvider>]) -> Option<Arc<dyn LlmProvider>>;
+    async fn select_provider(
+        &self,
+        providers: &[Arc<dyn LlmProvider>],
+    ) -> Option<Arc<dyn LlmProvider>>;
 }
 
 pub struct RoundRobinBalancer {
@@ -193,14 +224,21 @@ pub struct RoundRobinBalancer {
 
 impl RoundRobinBalancer {
     pub fn new() -> Self {
-        Self { counter: Arc::new(Mutex::new(0)) }
+        Self {
+            counter: Arc::new(Mutex::new(0)),
+        }
     }
 }
 
 #[async_trait]
 impl LoadBalancer for RoundRobinBalancer {
-    async fn select_provider(&self, providers: &[Arc<dyn LlmProvider>]) -> Option<Arc<dyn LlmProvider>> {
-        if providers.is_empty() { return None; }
+    async fn select_provider(
+        &self,
+        providers: &[Arc<dyn LlmProvider>],
+    ) -> Option<Arc<dyn LlmProvider>> {
+        if providers.is_empty() {
+            return None;
+        }
         let mut counter = self.counter.lock().await;
         let idx = *counter % providers.len();
         *counter += 1;
@@ -220,8 +258,12 @@ impl PriorityBalancer {
 
 #[async_trait]
 impl LoadBalancer for PriorityBalancer {
-    async fn select_provider(&self, providers: &[Arc<dyn LlmProvider>]) -> Option<Arc<dyn LlmProvider>> {
-        providers.iter()
+    async fn select_provider(
+        &self,
+        providers: &[Arc<dyn LlmProvider>],
+    ) -> Option<Arc<dyn LlmProvider>> {
+        providers
+            .iter()
             .max_by_key(|p| self.priorities.get(p.id()).copied().unwrap_or(0))
             .cloned()
     }

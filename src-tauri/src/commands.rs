@@ -1,11 +1,10 @@
 use crate::llm::{
-    ChatRequest, ChatResponse, ModelInfo,
-    ProviderRegistry, ModelRegistry, ProviderPool, PoolStrategy,
-    StreamingManager,
+    ChatRequest, ChatResponse, ModelInfo, ModelRegistry, PoolStrategy, ProviderPool,
+    ProviderRegistry, StreamingManager,
 };
-use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::{AppHandle, State};
 use tracing::instrument;
 
 #[derive(Debug, Deserialize)]
@@ -60,24 +59,32 @@ pub async fn chat_stream(
     request: ChatRequestPayload,
 ) -> Result<(), String> {
     let streaming = StreamingManager::new(app_handle.clone());
-    
+
     let chat_req = ChatRequest {
         model: request.model,
-        messages: request.messages.into_iter().map(|m| crate::llm::provider::ChatMessage {
-            role: m.role,
-            content: m.content,
-            name: None,
-        }).collect(),
+        messages: request
+            .messages
+            .into_iter()
+            .map(|m| crate::llm::provider::ChatMessage {
+                role: m.role,
+                content: m.content,
+                name: None,
+            })
+            .collect(),
         temperature: request.temperature,
         max_tokens: request.max_tokens,
         stream: true,
         metadata: Default::default(),
     };
 
-    let stream = provider_pool.chat_stream_with_fallback(chat_req).await
+    let stream = provider_pool
+        .chat_stream_with_fallback(chat_req)
+        .await
         .map_err(|e| e.to_string())?;
 
-    streaming.forward_stream(stream).await
+    streaming
+        .forward_stream(stream)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -89,18 +96,24 @@ pub async fn chat(
 ) -> Result<ChatResponse, String> {
     let chat_req = ChatRequest {
         model: request.model,
-        messages: request.messages.into_iter().map(|m| crate::llm::provider::ChatMessage {
-            role: m.role,
-            content: m.content,
-            name: None,
-        }).collect(),
+        messages: request
+            .messages
+            .into_iter()
+            .map(|m| crate::llm::provider::ChatMessage {
+                role: m.role,
+                content: m.content,
+                name: None,
+            })
+            .collect(),
         temperature: request.temperature,
         max_tokens: request.max_tokens,
         stream: false,
         metadata: Default::default(),
     };
 
-    provider_pool.chat_with_fallback(chat_req).await
+    provider_pool
+        .chat_with_fallback(chat_req)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -139,7 +152,10 @@ pub async fn llm_health_check(
 pub async fn scan_local_models(
     model_registry: State<'_, ModelRegistryState>,
 ) -> Result<usize, String> {
-    model_registry.scan_local_models().await.map_err(|e| e.to_string())
+    model_registry
+        .scan_local_models()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -154,7 +170,7 @@ pub async fn get_backlinks(_path: String) -> Result<Vec<String>, String> {
 
 pub fn init_provider_registry() -> ProviderRegistryState {
     let registry = Arc::new(ProviderRegistry::new());
-    
+
     // Ollama (local)
     let ollama = OllamaProvider::from_env();
     let registry_clone = registry.clone();
@@ -199,9 +215,15 @@ pub fn init_provider_registry() -> ProviderRegistryState {
 
 pub fn init_model_registry() -> ModelRegistryState {
     let local_dirs = vec![
-        dirs::home_dir().map(|h| h.join(".ollama/models")).unwrap_or_default(),
-        dirs::home_dir().map(|h| h.join(".cache/lm-studio/models")).unwrap_or_default(),
-        dirs::home_dir().map(|h| h.join("Models")).unwrap_or_default(),
+        dirs::home_dir()
+            .map(|h| h.join(".ollama/models"))
+            .unwrap_or_default(),
+        dirs::home_dir()
+            .map(|h| h.join(".cache/lm-studio/models"))
+            .unwrap_or_default(),
+        dirs::home_dir()
+            .map(|h| h.join("Models"))
+            .unwrap_or_default(),
     ];
     Arc::new(ModelRegistry::new(local_dirs))
 }
@@ -210,4 +232,6 @@ pub fn init_provider_pool(_registry: ProviderRegistryState) -> ProviderPoolState
     Arc::new(ProviderPool::new(PoolStrategy::Fallback))
 }
 
-use crate::llm::{OllamaProvider, OpenAIProvider, AnthropicProvider, OpenRouterProvider, GeminiProvider};
+use crate::llm::{
+    AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider, OpenRouterProvider,
+};
