@@ -107,7 +107,8 @@ impl LlmProvider for OpenAIProvider {
         }).collect();
 
         tokio::spawn(async move {
-            let mut request_builder = CreateChatCompletionRequestArgs::default()
+            let mut binding = CreateChatCompletionRequestArgs::default();
+            let mut request_builder = binding
                 .model(model)
                 .messages(messages)
                 .temperature(req.temperature.unwrap_or(1.0));
@@ -191,7 +192,8 @@ impl LlmProvider for OpenAIProvider {
                 .into()
         }).collect();
 
-        let mut request_builder = CreateChatCompletionRequestArgs::default()
+        let mut binding = CreateChatCompletionRequestArgs::default();
+        let mut request_builder = binding
             .model(req.model)
             .messages(messages)
             .temperature(req.temperature.unwrap_or(1.0));
