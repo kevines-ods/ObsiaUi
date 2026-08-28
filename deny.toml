@@ -33,7 +33,16 @@ exceptions = [
 [advisories]
 # Les vulnérabilités connues (rustsec) font échouer le CI
 yanked = "deny"
-ignore = []
+ignore = [
+    # RUSTSEC-2024-0413 + 0416 : bindings GTK3 "unmaintained" — dépendance
+    # transitive OBLIGATOIRE de Tauri v2 (webkit2gtk-4.1). Pas de remplacement
+    # possible sans changer toute la stack GUI. Aucune vulnérabilité active.
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0416",
+    # RUSTSEC-2025-0012 : crate `backoff` non maintenu — dépendance transitive
+    # d'ollama-rs (retry HTTP). Fonctionnel, pas de vulnérabilité connue.
+    "RUSTSEC-2025-0012",
+]
 
 [bans]
 # Cratas bannis pour raisons de sécurité/maintenance
