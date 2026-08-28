@@ -1,0 +1,14 @@
+# Secrets
+**NE JAMAIS COMMITTER DE SECRETS / CLÉS API**
+
+node_modules/
+dist/
+target/
+.env
+.env.*
+secrets/
+**/*.pem
+**/*.key
+
+# Archive de quarantaine (copie humaine, pas versionnée ici)
+.archive/
