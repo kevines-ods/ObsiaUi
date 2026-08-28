@@ -3,6 +3,7 @@ import ChatZone from "./components/ChatZone";
 import ControlPanel from "./components/ControlPanel";
 import FileManager from "./components/FileManager";
 import ProviderSelector from "./components/ProviderSelector";
+import { AppProvider } from "./context/AppContext";
 import "./App.css";
 
 export default function App() {
@@ -10,7 +11,8 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true);
 
   return (
-    <div className="layout">
+    <AppProvider>
+      <div className="layout">
       <header className="topbar">
         <div className="topbar-left">
           <button onClick={() => setLeftOpen((v) => !v)} aria-label="Toggle control panel">
@@ -37,6 +39,7 @@ export default function App() {
           </aside>
         )}
       </div>
-    </div>
+      </div>
+    </AppProvider>
   );
 }

@@ -1,44 +1,137 @@
+/**
+ * Sélecteur de fournisseur + modèle.
+ *
+ * - Liste les fournisseurs via `providers_list` (via AppContext).
+ * - Affiche les modèles de chaque fournisseur.
+ * - Bouton de test de santé via `provider_test`.
+ * - La sélection est persistée : `defaultProvider` via `config_set`.
+ */
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 
-type Provider = { id: string; label: string; models: string[] };
-const FALLBACK: Provider[] = [
-  { id: "ollama", label: "Ollama (local)", models: ["llama3.2", "gemma2"] },
-  { id: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini"] },
-  { id: "anthropic", label: "Anthropic", models: ["claude-3-5-sonnet-20241022"] },
-  { id: "openrouter", label: "OpenRouter", models: ["auto"] },
-  { id: "gemini", label: "Gemini", models: ["gemini-1.5-pro"] },
-];
+import { useApp } from "../context/AppContext";
 
-export default function ProviderSelector() {
-  const [providers, setProviders] = useState<Provider[]>(FALLBACK);
-  const [selectedProvider, setSelectedProvider] = useState(FALLBACK[0].id);
-  const [selectedModel, setSelectedModel] = useState(FALLBACK[0].models[0]);
+export default function ProviderSelector(): React.JSX.Element {
+  const {
+    providers,
+    loadingProviders,
+    loadError,
+    selectedProviderId,
+    selectedModel,
+    selectProviderAndModel,
+    testProvider,
+    health,
+    testingId,
+    refreshProviders,
+  } = useApp();
+
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    invoke<Provider[]>("list_providers").then(setProviders).catch(()=>{});
-  }, []);
+  const selected = providers.find((p) => p.id === selectedProviderId);
 
-  const current = providers.find(p=>p.id===selectedProvider) ?? providers[0];
+  // Ferme le dropdown si la sélection change / hors focus.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const handleTest = async (providerId: string): Promise<void> => {
+    if (testingId) return;
+    await testProvider(providerId);
+  };
 
   return (
     <div className="provider-selector">
-      <button className="provider-btn" onClick={()=>setOpen(v=>!v)}>
-        {current.label} / {selectedModel} ▾
+      <button
+        type="button"
+        className="btn btn-ghost"
+        onClick={() => setOpen((v) => !v)}
+        disabled={loadingProviders}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        data-testid="provider-selector-trigger"
+      >
+        {loadingProviders ? "Chargement…" : selected?.name ?? "Fournisseur"} —{" "}
+        {selectedModel || "…"}
       </button>
+
       {open && (
-        <div className="provider-dropdown">
-          {providers.map(p=>(
-            <div key={p.id} className="provider-group">
-              <strong onClick={()=>{setSelectedProvider(p.id); setSelectedModel(p.models[0]);}}>{p.label}</strong>
-              <div className="model-list">
-                {p.models.map(m=>(
-                  <button key={m} className={selectedProvider===p.id&&selectedModel===m?"active":""} onClick={()=>{setSelectedProvider(p.id); setSelectedModel(m); setOpen(false);}}>{m}</button>
-                ))}
+        <div className="provider-dropdown" role="listbox" aria-label="Fournisseurs et modèles">
+          <div className="dropdown-head">
+            <span>Fournisseurs</span>
+            <button
+              type="button"
+              className="link"
+              onClick={() => void refreshProviders()}
+            >
+              Rafraîchir
+            </button>
+          </div>
+
+          {loadError && <p className="err-text">{loadError}</p>}
+
+          {providers.length === 0 && !loadingProviders && (
+            <p className="empty-hint">Aucun fournisseur configuré.</p>
+          )}
+
+          {providers.map((provider) => {
+            const h = health[provider.id];
+            const isActive = provider.id === selectedProviderId;
+            return (
+              <div className="provider-group" key={provider.id}>
+                <div className="provider-row">
+                  <label className="provider-name">
+                    <input
+                      type="radio"
+                      name="provider"
+                      checked={isActive}
+                      onChange={() => {
+                        const model = provider.models[0]?.id ?? "";
+                        selectProviderAndModel(provider.id, model);
+                      }}
+                    />
+                    <span>{provider.name}</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-mini"
+                    onClick={() => void handleTest(provider.id)}
+                    disabled={testingId === provider.id}
+                    title="Tester la connexion"
+                  >
+                    {testingId === provider.id ? "…" : "Test"}
+                  </button>
+                  {h && (
+                    <span className={`badge ${h.ok ? "badge-ok" : "badge-err"}`}>
+                      {h.ok ? "OK" : "Erreur"}
+                    </span>
+                  )}
+                </div>
+
+                {isActive && provider.models.length > 0 && (
+                  <div className="model-list">
+                    {provider.models.map((model) => (
+                      <button
+                        type="button"
+                        key={model.id}
+                        className={model.id === selectedModel ? "active" : ""}
+                        onClick={() => {
+                          selectProviderAndModel(provider.id, model.id);
+                          setOpen(false);
+                        }}
+                        title={`${model.id} — ctx ${model.context_window}`}
+                      >
+                        {model.name || model.id}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

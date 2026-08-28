@@ -1,68 +1,170 @@
-import { useEffect, useState, useCallback } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+/**
+ * Hook de streaming LLM — aligné sur le contrat IPC `chat_stream`.
+ *
+ * - `send(messages, options)` déclenche la commande `chat_stream` avec un
+ *   payload `{ provider, model, messages, temperature, maxTokens }`.
+ * - S'abonne aux événements `llm:token` (string), `llm:done` (ChatResponse),
+ *   `llm:error` (string).
+ * - `stop()` : arrêt best-effort côté UI (le backend n'expose pas de commande
+ *   d'annulation, on ignore donc les événements restants).
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 
-/** Type miroir du contrat IPC Rust (ChatMessage). */
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-  name?: string;
-}
+import * as ipc from "../lib/ipc";
+import type {
+  ChatMessage,
+  ChatRequestPayload,
+  ChatResponse,
+} from "../types/ipc";
 
-/** Options de chat (contrat IPC ChatRequestPayload). */
-export interface ChatOptions {
+export interface UseLlmStreamOptions {
+  provider?: string | null;
+  model?: string | null;
   temperature?: number;
   maxTokens?: number;
-  stream?: boolean;
 }
 
-/**
- * Hook de streaming LLM — branché sur le contrat IPC Tauri :
- * - commande : `chat_stream` (payload { provider, model, messages, options })
- * - événements : `llm:token` (chunk), `llm:done`, `llm:error`
- */
-export function useLlmStream() {
-  const [tokens, setTokens] = useState("");
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export interface UseLlmStream {
+  tokens: string;
+  isStreaming: boolean;
+  isDone: boolean;
+  error: string | null;
+  response: ChatResponse | null;
+  send: (
+    messages: ChatMessage[],
+    options?: UseLlmStreamOptions,
+  ) => Promise<void>;
+  stop: () => void;
+  reset: () => void;
+}
 
-  useEffect(() => {
-    const unlisten: (() => void)[] = [];
-    listen<string>("llm:token", (e) => setTokens((p) => p + e.payload)).then((f) =>
-      unlisten.push(f)
-    );
-    listen("llm:done", () => setDone(true)).then((f) => unlisten.push(f));
-    listen<string>("llm:error", (e) => setError(e.payload)).then((f) =>
-      unlisten.push(f)
-    );
-    return () => unlisten.forEach((fn) => fn());
+export function useLlmStream(): UseLlmStream {
+  const [tokens, setTokens] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [isDone, setIsDone] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<ChatResponse | null>(null);
+
+  const tokensRef = useRef("");
+  const activeRef = useRef(false);
+  const cancelRef = useRef(false);
+
+  const reset = useCallback((): void => {
+    tokensRef.current = "";
+    cancelRef.current = false;
+    activeRef.current = false;
+    setTokens("");
+    setError(null);
+    setResponse(null);
+    setIsStreaming(false);
+    setIsDone(true);
+  }, []);
+
+  const stop = useCallback((): void => {
+    cancelRef.current = true;
+    activeRef.current = false;
+    setIsStreaming(false);
+    setIsDone(true);
   }, []);
 
   const send = useCallback(
     async (
       messages: ChatMessage[],
-      provider: string,
-      model: string,
-      options?: ChatOptions
-    ) => {
+      options: UseLlmStreamOptions = {},
+    ): Promise<void> => {
+      const model = options.model;
+      if (!model) {
+        setError("Aucun modèle sélectionné.");
+        return;
+      }
+
+      // Nouvelle session de streaming.
+      cancelRef.current = false;
+      activeRef.current = true;
+      tokensRef.current = "";
       setTokens("");
-      setDone(false);
       setError(null);
-      await invoke("chat_stream", {
-        provider,
+      setResponse(null);
+      setIsStreaming(true);
+      setIsDone(false);
+
+      const payload: ChatRequestPayload = {
+        provider: options.provider ?? null,
         model,
         messages,
-        stream: options?.stream ?? true,
-        temperature: options?.temperature,
-        maxTokens: options?.maxTokens,
-      });
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+      };
+
+      try {
+        // chat_stream se termine quand le flux a été entièrement émis.
+        await ipc.chatStream(payload);
+      } catch (e) {
+        if (activeRef.current) {
+          setError(e instanceof Error ? e.message : String(e));
+          setIsStreaming(false);
+          setIsDone(true);
+          activeRef.current = false;
+        }
+      }
     },
-    []
+    [],
   );
 
-  const stop = useCallback(() => {
-    setDone(true);
+  // Abonnement unique aux événements (survit à la StrictMode double-mount).
+  useEffect(() => {
+    let tokenUnlisten: (() => void) | undefined;
+    let doneUnlisten: (() => void) | undefined;
+    let errorUnlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    void (async () => {
+      const [tok, done, err] = await Promise.all([
+        ipc.stream.onToken((tokPayload) => {
+          if (!activeRef.current || cancelRef.current) return;
+          tokensRef.current += tokPayload;
+          setTokens(tokensRef.current);
+        }),
+        ipc.stream.onDone((resp) => {
+          if (cancelRef.current) return;
+          // Repli : si aucun token n'a été reçu, on extrait le contenu complet.
+          if (!tokensRef.current && resp?.choices?.length) {
+            const full = resp.choices[0]?.message?.content ?? "";
+            tokensRef.current = full;
+            setTokens(full);
+          }
+          setResponse(resp);
+          setIsDone(true);
+          setIsStreaming(false);
+          activeRef.current = false;
+        }),
+        ipc.stream.onError((msg) => {
+          if (cancelRef.current) return;
+          setError(msg);
+          setIsDone(true);
+          setIsStreaming(false);
+          activeRef.current = false;
+        }),
+      ]);
+
+      if (cancelled) {
+        tok();
+        done();
+        err();
+        return;
+      }
+      tokenUnlisten = tok;
+      doneUnlisten = done;
+      errorUnlisten = err;
+    })();
+
+    return () => {
+      cancelled = true;
+      tokenUnlisten?.();
+      doneUnlisten?.();
+      errorUnlisten?.();
+    };
   }, []);
 
-  return { tokens, done, error, send, stop, setTokens };
+  return { tokens, isStreaming, isDone, error, response, send, stop, reset };
 }
