@@ -1,8 +1,7 @@
 use crate::commands::{
-    chat_send, chat_stream, config_get, config_set, init_model_registry,
-    init_provider_pool, init_provider_registry, init_vault, llm_health_check,
-    models_list, provider_test, providers_list, scan_local_models, vault_list,
-    vault_path, vault_read, vault_write,
+    chat_send, chat_stream, config_get, config_set, init_model_registry, init_provider_pool,
+    init_provider_registry, init_vault, llm_health_check, models_list, provider_test,
+    providers_list, scan_local_models, vault_list, vault_path, vault_read, vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;

@@ -26,8 +26,7 @@ impl OllamaProvider {
 
     pub fn from_env() -> Self {
         Self::new(
-            std::env::var("OLLAMA_HOST")
-                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+            std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string()),
         )
     }
 }

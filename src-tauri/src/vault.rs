@@ -71,9 +71,9 @@ impl VaultState {
 
         for candidate in candidates {
             if candidate.is_dir() {
-                let canonical = candidate
-                    .canonicalize()
-                    .map_err(|e| format!("impossible de canonicaliser {}: {e}", candidate.display()))?;
+                let canonical = candidate.canonicalize().map_err(|e| {
+                    format!("impossible de canonicaliser {}: {e}", candidate.display())
+                })?;
                 info!(vault = %canonical.display(), "coffre résolu");
                 return Ok(Self { root: canonical });
             }
@@ -89,12 +89,16 @@ impl VaultState {
     /// erreur explicite (utilisé au setup si le coffre est introuvable).
     pub fn unavailable(message: String) -> Self {
         warn!(%message, "VaultState indisponible — coffre non configuré");
-        Self { root: PathBuf::new() }
+        Self {
+            root: PathBuf::new(),
+        }
     }
 
     fn ensure_configured(&self) -> Result<(), String> {
         if self.root.as_os_str().is_empty() {
-            return Err("coffre non configuré (OBSI_VAULT_PATH ou config vault_path requis)".into());
+            return Err(
+                "coffre non configuré (OBSI_VAULT_PATH ou config vault_path requis)".into(),
+            );
         }
         Ok(())
     }
@@ -109,8 +113,8 @@ impl VaultState {
     }
 
     fn walk(&self, dir: &Path, out: &mut Vec<VaultEntry>) -> Result<(), String> {
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| format!("lecture du coffre impossible: {e}"))?;
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| format!("lecture du coffre impossible: {e}"))?;
         for entry in entries.flatten() {
             let path = entry.path();
             let file_name = entry.file_name();
@@ -121,9 +125,7 @@ impl VaultState {
                 }
             } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
                 if let Ok(meta) = path.metadata() {
-                    let rel = self
-                        .to_relative(&path)
-                        .unwrap_or_else(|| name.clone());
+                    let rel = self.to_relative(&path).unwrap_or_else(|| name.clone());
                     out.push(VaultEntry {
                         path: rel,
                         name,
@@ -138,7 +140,8 @@ impl VaultState {
     /// Lit une note markdown (chemin relatif). Sandbox appliquée.
     pub fn read_note(&self, rel: &str) -> Result<String, String> {
         let path = self.safe_join(rel, true)?;
-        std::fs::read_to_string(&path).map_err(|e| format!("lecture de {} impossible: {e}", path.display()))
+        std::fs::read_to_string(&path)
+            .map_err(|e| format!("lecture de {} impossible: {e}", path.display()))
     }
 
     /// Écrit une note markdown (chemin relatif). Sandbox + protection

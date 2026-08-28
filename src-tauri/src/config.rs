@@ -87,8 +87,8 @@ impl AppConfig {
 
     /// Sauvegarde avec permissions 0600 (Unix) + fsync.
     pub fn save(&self, path: &PathBuf) -> Result<(), String> {
-        let raw = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("sérialisation config: {e}"))?;
+        let raw =
+            serde_json::to_string_pretty(self).map_err(|e| format!("sérialisation config: {e}"))?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("création {}: {e}", parent.display()))?;
@@ -132,7 +132,11 @@ impl AppConfig {
     }
 
     pub fn apply_patch(&mut self, patch: ConfigPatch) {
-        if let Some(SetApiKey { provider_id, api_key }) = patch.set_api_key {
+        if let Some(SetApiKey {
+            provider_id,
+            api_key,
+        }) = patch.set_api_key
+        {
             let trimmed = api_key.trim().to_string();
             if trimmed.is_empty() {
                 self.api_keys.remove(&provider_id);
@@ -168,10 +172,7 @@ impl ConfigState {
     }
 
     pub fn read(&self) -> AppConfig {
-        self.inner
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.inner.read().map(|g| g.clone()).unwrap_or_default()
     }
 
     pub fn update(&self, patch: ConfigPatch) -> Result<ConfigView, String> {
@@ -201,8 +202,7 @@ mod tests {
     fn roundtrip_config() {
         let path = temp_config_path();
         let mut cfg = AppConfig::default();
-        cfg.api_keys
-            .insert("openai".into(), "sk-test-123".into());
+        cfg.api_keys.insert("openai".into(), "sk-test-123".into());
         cfg.default_provider = Some("ollama".into());
         cfg.save(&path).unwrap();
 
@@ -226,8 +226,7 @@ mod tests {
     #[test]
     fn env_var_prioritaire_sur_config() {
         let mut cfg = AppConfig::default();
-        cfg.api_keys
-            .insert("openai".into(), "from-file".into());
+        cfg.api_keys.insert("openai".into(), "from-file".into());
         // Sans env var -> config fichier
         assert_eq!(cfg.api_key_for("openai").unwrap(), "from-file");
         // Avec env var -> env var
@@ -243,8 +242,7 @@ mod tests {
     #[test]
     fn patch_vide_supprime_cle() {
         let mut cfg = AppConfig::default();
-        cfg.api_keys
-            .insert("openai".into(), "sk-abc".into());
+        cfg.api_keys.insert("openai".into(), "sk-abc".into());
         cfg.apply_patch(ConfigPatch {
             set_api_key: Some(SetApiKey {
                 provider_id: "openai".into(),
@@ -263,6 +261,9 @@ mod tests {
         let view = cfg.view();
         assert!(view.api_keys_configured.contains(&"openai".to_string()));
         let json = serde_json::to_string(&view).unwrap();
-        assert!(!json.contains("sk-super-secret"), "les secrets ne doivent pas sortir");
+        assert!(
+            !json.contains("sk-super-secret"),
+            "les secrets ne doivent pas sortir"
+        );
     }
 }

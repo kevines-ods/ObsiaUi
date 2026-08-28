@@ -153,11 +153,15 @@ impl ProviderPool {
     pub async fn get_by_id(&self, provider_id: &str) -> Option<Arc<dyn LlmProvider>> {
         let providers = self.providers.read().await;
         let breakers = self.circuit_breakers.read().await;
-        providers.iter().find(|p| p.id() == provider_id).cloned().filter(|p| {
-            breakers
-                .get(p.id())
-                .is_none_or(|cb| cb.state != CircuitState::Open)
-        })
+        providers
+            .iter()
+            .find(|p| p.id() == provider_id)
+            .cloned()
+            .filter(|p| {
+                breakers
+                    .get(p.id())
+                    .is_none_or(|cb| cb.state != CircuitState::Open)
+            })
     }
 
     /// Chat ciblé sur un provider précis (sélection explicite par l'UI).
@@ -166,10 +170,9 @@ impl ProviderPool {
         provider_id: &str,
         req: ChatRequest,
     ) -> Result<ChatResponse, LlmError> {
-        let provider = self
-            .get_by_id(provider_id)
-            .await
-            .ok_or_else(|| LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable")))?;
+        let provider = self.get_by_id(provider_id).await.ok_or_else(|| {
+            LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable"))
+        })?;
         match provider.chat(req).await {
             Ok(resp) => {
                 self.record_success(provider.id()).await;
@@ -188,10 +191,9 @@ impl ProviderPool {
         provider_id: &str,
         req: ChatRequest,
     ) -> Result<TokenStream, LlmError> {
-        let provider = self
-            .get_by_id(provider_id)
-            .await
-            .ok_or_else(|| LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable")))?;
+        let provider = self.get_by_id(provider_id).await.ok_or_else(|| {
+            LlmError::ProviderUnavailable(format!("Provider '{provider_id}' unavailable"))
+        })?;
         match provider.chat_stream(req).await {
             Ok(stream) => {
                 self.record_success(provider.id()).await;

@@ -82,7 +82,9 @@ pub fn init_provider_registry(config: &ConfigState) -> ProviderRegistryState {
             let provider: Option<Arc<dyn crate::llm::provider::LlmProvider>> = match provider_id {
                 "openai" => Some(Arc::new(crate::llm::openai::OpenAIProvider::new(key))),
                 "anthropic" => Some(Arc::new(crate::llm::anthropic::AnthropicProvider::new(key))),
-                "openrouter" => Some(Arc::new(crate::llm::openrouter::OpenRouterProvider::new(key))),
+                "openrouter" => Some(Arc::new(crate::llm::openrouter::OpenRouterProvider::new(
+                    key,
+                ))),
                 "gemini" => Some(Arc::new(crate::llm::gemini::GeminiProvider::new(key))),
                 _ => None,
             };
@@ -188,11 +190,7 @@ fn validate_payload(payload: &ChatRequestPayload) -> Result<(), String> {
     if payload.messages.is_empty() {
         return Err("messages ne doit pas être vide".into());
     }
-    if payload
-        .messages
-        .iter()
-        .any(|m| m.content.trim().is_empty())
-    {
+    if payload.messages.iter().any(|m| m.content.trim().is_empty()) {
         return Err("message vide refusé".into());
     }
     Ok(())
@@ -413,7 +411,9 @@ mod tests {
                     .await
                     .unwrap();
             }
-            tx.send(TokenEvent::Done(self_echo_response(&req))).await.unwrap();
+            tx.send(TokenEvent::Done(self_echo_response(&req)))
+                .await
+                .unwrap();
             Ok(rx)
         }
 
@@ -495,8 +495,16 @@ mod tests {
         let req = ChatRequest {
             model: "fake-model".into(),
             messages: vec![
-                ChatMessage { role: "user".into(), content: "a".into(), name: None },
-                ChatMessage { role: "user".into(), content: "b".into(), name: None },
+                ChatMessage {
+                    role: "user".into(),
+                    content: "a".into(),
+                    name: None,
+                },
+                ChatMessage {
+                    role: "user".into(),
+                    content: "b".into(),
+                    name: None,
+                },
             ],
             temperature: None,
             max_tokens: None,
@@ -520,7 +528,11 @@ mod tests {
         let pool = pool_with_fake().await;
         let req = ChatRequest {
             model: "fake-model".into(),
-            messages: vec![ChatMessage { role: "user".into(), content: "x".into(), name: None }],
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: "x".into(),
+                name: None,
+            }],
             temperature: None,
             max_tokens: None,
             stream: false,
