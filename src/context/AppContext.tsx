@@ -18,7 +18,7 @@ import {
 
 import * as ipc from "../lib/ipc";
 import { loadAgents } from "../lib/agents";
-import type { AgentInfo } from "../types/agent";
+import type { AgentInfo } from "../types/ipc";
 import type { ConfigPatch, ConfigView, ProviderHealth, ProviderInfo } from "../types/ipc";
 
 interface AppContextValue {

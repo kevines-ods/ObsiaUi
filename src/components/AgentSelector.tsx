@@ -75,7 +75,7 @@ export default function AgentSelector(): React.JSX.Element {
                 }}
               >
                 <span className="cp-label">{agent.name}</span>
-                {agent.readOnly && (
+                {agent.read_only && (
                   <span className="badge badge-err">lecture seule</span>
                 )}
               </button>

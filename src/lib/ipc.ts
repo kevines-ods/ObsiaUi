@@ -10,6 +10,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
+  AgentDoc,
+  AgentInfo,
   ChatRequestPayload,
   ChatResponse,
   ConfigPatch,
@@ -66,6 +68,14 @@ export const vaultWrite = (
 
 export const vaultPath = (): Promise<string> =>
   invoke<string>("vault_path");
+
+/** Agents : liste validée par le backend (frontmatter parsé côté Rust). */
+export const agentsList = (): Promise<AgentInfo[]> =>
+  invoke<AgentInfo[]>("agents_list");
+
+/** Lit un agent complet (chemin relatif `IA/agents/*.md` ou simple nom). */
+export const agentRead = (path: string): Promise<AgentDoc> =>
+  invoke<AgentDoc>("agent_read", { path });
 
 /** Écoute un événement de stream et retourne une fonction de désabonnement. */
 export function listenEvent<T>(

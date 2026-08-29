@@ -15,6 +15,7 @@ import {
 
 import { useApp } from "../context/AppContext";
 import { useLlmStream } from "../hooks/useLlmStream";
+import * as ipc from "../lib/ipc";
 import type { ChatMessage } from "../types/ipc";
 
 const SYSTEM_PROMPT =
@@ -27,11 +28,35 @@ export default function ChatZone(): React.JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pendingAt, setPendingAt] = useState<number | null>(null);
+  const [agentBody, setAgentBody] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const commitRef = useRef(false);
 
+  const activeAgent = agents.find((a) => a.name === selectedAgent);
+
   const canSend = input.trim().length > 0 && Boolean(selectedModel) && !isStreaming;
+
+  // Corps markdown de l'agent actif (prompt système) via `agent_read`.
+  useEffect(() => {
+    const path = activeAgent?.path;
+    if (!path) {
+      setAgentBody(null);
+      return;
+    }
+    let cancelled = false;
+    void ipc
+      .agentRead(path)
+      .then((doc) => {
+        if (!cancelled) setAgentBody(doc.content);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentBody(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAgent?.path]);
 
   // Auto-scroll sur nouveaux messages / tokens.
   useEffect(() => {
@@ -56,8 +81,10 @@ export default function ChatZone(): React.JSX.Element {
     const text = input.trim();
     if (!text || !selectedModel || isStreaming) return;
 
-    const activeAgent = agents.find((a) => a.name === selectedAgent);
-    const systemPrompt = activeAgent
+    // Prompt système : corps markdown complet de l'agent si disponible.
+    const systemPrompt = agentBody
+      ? agentBody
+      : activeAgent
       ? `Tu agis selon l'agent « ${activeAgent.name} ».\n${activeAgent.description}`.trim()
       : SYSTEM_PROMPT;
 
@@ -75,7 +102,7 @@ export default function ChatZone(): React.JSX.Element {
 
     await send(next, { provider: selectedProviderId, model: selectedModel });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, messages, selectedProviderId, selectedModel, isStreaming, agents, selectedAgent, send]);
+  }, [input, messages, selectedProviderId, selectedModel, isStreaming, agents, selectedAgent, agentBody, activeAgent, send]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -92,14 +119,13 @@ export default function ChatZone(): React.JSX.Element {
   // Messages historiques (inclut le pending assistant une fois commit).
   const history = pendingAt === null ? messages : messages.slice(0, pendingAt);
   const streamingContent = isStreaming || !isDone ? tokens : null;
-  const activeAgent = agents.find((a) => a.name === selectedAgent);
 
   return (
     <div className="chat-zone">
       {activeAgent && (
         <div className="chat-agent-bar">
           <span className="chat-agent-name">🤖 {activeAgent.name}</span>
-          {activeAgent.readOnly && (
+          {activeAgent.read_only && (
             <span className="badge badge-err">lecture seule</span>
           )}
         </div>

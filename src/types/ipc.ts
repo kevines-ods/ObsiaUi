@@ -122,6 +122,26 @@ export interface VaultEntry {
   modified: string;
 }
 
+// ===== Agents (agents.rs = snake_case, pas de rename_all) =====
+
+export interface AgentInfo {
+  /** Chemin relatif au coffre, ex. `IA/agents/assistant.md`. */
+  path: string;
+  name: string;
+  description: string;
+  /** Toujours un tableau (défaut `[]` côté backend). */
+  skills: string[];
+  /** Idem. */
+  mcp: string[];
+  /** Bool Rust (plus besoin de parser "true"/"false"). */
+  read_only: boolean;
+}
+
+export interface AgentDoc extends AgentInfo {
+  /** Corps markdown de l'agent, SANS le frontmatter YAML (prompt système). */
+  content: string;
+}
+
 // ===== Événements de stream =====
 
 export type LlmTokenEvent = string;
