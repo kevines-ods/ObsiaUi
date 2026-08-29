@@ -1,4 +1,4 @@
-# Configuration cargo-deny pour OBSI (workspace build/)
+# Configuration cargo-deny pour OBSIA (workspace build/)
 # Vérifiée par le job "Security Audit" du workflow CI.
 
 [graph]

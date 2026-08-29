@@ -20,7 +20,7 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let config_path = config_dir.join("obsi_config.json");
+            let config_path = config_dir.join("obsia_config.json");
             let config_state = ConfigState::new(config_path);
             app.manage(config_state);
 
@@ -31,7 +31,7 @@ pub fn run() {
             let model_registry = init_model_registry();
             let provider_pool = init_provider_pool(&provider_registry);
 
-            // Coffre : sandbox bornée à obsi_vault/ (config > env > défaut dev)
+            // Coffre : sandbox bornée à obsia_vault/ (config > env > défaut dev)
             match init_vault(config_ref) {
                 Ok(vault) => {
                     app.manage(vault);

@@ -1,4 +1,4 @@
-# 🧠 OBSI — Obsidian Orchestrated System Intelligence
+# 🧠 OBSIA — Obsidian Orchestrated System Intelligence
 
 Système d'**orchestration agentic** natif Linux (Tauri/Rust), multi-fournisseur
 (local + API), dont la mémoire et la création d'agents reposent entièrement sur
@@ -6,7 +6,7 @@ un **coffre Obsidian** (Markdown + rétroliens).
 
 ## Démarrage
 ```bash
-git init && git add . && git commit -m "chore: baseline coffre OBSI"
+git init && git add . && git commit -m "chore: baseline coffre OBSIA"
 ```
 
 ## Conventions

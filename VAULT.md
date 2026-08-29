@@ -1,4 +1,4 @@
-# VAULT.md — Contrat d'exploitation du coffre OBSI
+# VAULT.md — Contrat d'exploitation du coffre OBSIA
 
 > Porte d'entrée pour l'humain ET pour l'agent "assistant". Lis ce fichier en
 > premier avant toute modification.
@@ -20,7 +20,7 @@ natif Linux. Les agents lisent/écrivent ici, ne nulle part ailleurs.
 
 ## 3. Conventions de nommage
 - Index : `sommaire.md`
-- Entrée : `AAAA-MM-JJ-titre.md` (ex. `2026-08-27-lancement-obsi.md`) ou `slug-titre.md`
+- Entrée : `AAAA-MM-JJ-titre.md` (ex. `2026-08-27-lancement-obsia.md`) ou `slug-titre.md`
 
 ## 4. Frontières (lecture seule / revue)
 - `/IA/MCP/` : modification **revue humaine obligatoire**.

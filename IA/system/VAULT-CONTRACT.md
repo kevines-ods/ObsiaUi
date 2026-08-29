@@ -1,4 +1,4 @@
-# VAULT-CONTRACT.md — Contrat du système OBSI
+# VAULT-CONTRACT.md — Contrat du système OBSIA
 
 Porte d'entrée pour l'agent "assistant" (méta-agent capable de modifier le
 système). Lis ceci en premier.

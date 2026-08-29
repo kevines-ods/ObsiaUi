@@ -105,7 +105,7 @@ pub fn init_provider_registry(config: &ConfigState) -> ProviderRegistryState {
 /// Registry des modèles locaux (GGUF/safetensors).
 pub fn init_model_registry() -> ModelRegistryState {
     let mut dirs = Vec::new();
-    if let Ok(p) = std::env::var("OBSI_MODEL_DIR") {
+    if let Ok(p) = std::env::var("OBSIA_MODEL_DIR") {
         dirs.push(std::path::PathBuf::from(p));
     }
     Arc::new(ModelRegistry::new(dirs))
@@ -329,7 +329,7 @@ pub fn config_set(
     config.update(patch)
 }
 
-// ===== Commandes — Coffre (sandbox obsi_vault) =====
+// ===== Commandes — Coffre (sandbox obsia_vault) =====
 
 /// Liste les notes markdown du coffre.
 #[tauri::command]

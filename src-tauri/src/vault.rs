@@ -1,4 +1,4 @@
-//! Sandbox du coffre (obsi_vault) : accès fichiers BORNÉ au coffre.
+//! Sandbox du coffre (obsia_vault) : accès fichiers BORNÉ au coffre.
 //!
 //! Règles de sécurité :
 //! - Toute résolution de chemin passe par [`VaultState::safe_join`] qui
@@ -49,22 +49,22 @@ impl VaultState {
     /// Résout et canonicalise la racine du coffre.
     ///
     /// Ordre de résolution :
-    /// 1. Env var `OBSI_VAULT_PATH` (chemin configurable, prioritaire)
+    /// 1. Env var `OBSIA_VAULT_PATH` (chemin configurable, prioritaire)
     /// 2. Racine passée par le config file (via `vault_path` de la config)
-    /// 3. Défaut dev : `<cwd>/../obsi_vault` puis `<cwd>/obsi_vault`
-    /// 4. Dernier recours : `~/obsi_vault`
+    /// 3. Défaut dev : `<cwd>/../obsia_vault` puis `<cwd>/obsia_vault`
+    /// 4. Dernier recours : `~/obsia_vault`
     pub fn resolve(root_override: Option<String>) -> Result<Self, String> {
         let candidates: Vec<PathBuf> = if let Some(p) = root_override {
             vec![PathBuf::from(p)]
-        } else if let Ok(p) = std::env::var("OBSI_VAULT_PATH") {
+        } else if let Ok(p) = std::env::var("OBSIA_VAULT_PATH") {
             vec![PathBuf::from(p)]
         } else {
             let cwd = std::env::current_dir().unwrap_or_default();
             vec![
-                cwd.join("../obsi_vault"),
-                cwd.join("obsi_vault"),
+                cwd.join("../obsia_vault"),
+                cwd.join("obsia_vault"),
                 dirs::home_dir()
-                    .map(|h| h.join("obsi_vault"))
+                    .map(|h| h.join("obsia_vault"))
                     .unwrap_or_default(),
             ]
         };
@@ -78,7 +78,7 @@ impl VaultState {
                 return Ok(Self { root: canonical });
             }
         }
-        Err("coffre introuvable — configurez OBSI_VAULT_PATH ou la config vault_path (chemin attendu : obsi_vault/)".to_string())
+        Err("coffre introuvable — configurez OBSIA_VAULT_PATH ou la config vault_path (chemin attendu : obsia_vault/)".to_string())
     }
 
     pub fn root(&self) -> &Path {
@@ -97,7 +97,7 @@ impl VaultState {
     fn ensure_configured(&self) -> Result<(), String> {
         if self.root.as_os_str().is_empty() {
             return Err(
-                "coffre non configuré (OBSI_VAULT_PATH ou config vault_path requis)".into(),
+                "coffre non configuré (OBSIA_VAULT_PATH ou config vault_path requis)".into(),
             );
         }
         Ok(())

@@ -1,5 +1,5 @@
 {
-  "identifier": "com.obsi.desktop",
+  "identifier": "com.obsia.desktop",
   "build": {
     "frontendDist": "../src/dist",
     "devUrl": "http://localhost:1420"
@@ -8,7 +8,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "OBSI",
+        "title": "OBSIA",
         "width": 1400,
         "height": 900
       }

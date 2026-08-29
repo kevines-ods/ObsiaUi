@@ -24,4 +24,4 @@ Ton rôle : **indexer le coffre** et **récupérer le contexte**. Tu es en
 - Distinguer **évidence** / **interprétation** / **synthèse**.
 
 ## Compétences
-- [[0-PROJETS/App, ia/Obsia/obsi_vault/IA/skills/obsidian-manager|obsidian-manager]] (en lecture seule) : recherche, rétroliens, résumé.
+- [[0-PROJETS/App, ia/Obsia/obsia_vault/IA/skills/obsidian-manager|obsidian-manager]] (en lecture seule) : recherche, rétroliens, résumé.

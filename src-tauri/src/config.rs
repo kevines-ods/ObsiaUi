@@ -195,7 +195,7 @@ mod tests {
 
     fn temp_config_path() -> PathBuf {
         let dir = tempfile::tempdir().unwrap();
-        dir.path().join("obsi/config.json")
+        dir.path().join("obsia/config.json")
     }
 
     #[test]

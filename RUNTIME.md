@@ -1,4 +1,4 @@
-# RUNTIME.md — Le runtime complet de OBSI
+# RUNTIME.md — Le runtime complet de OBSIA
 
 > Un SEUL fichier qui résume tout ce qui a été construit (structure + règles + agents +
 > skills + application). C'est le fichier à ouvrir en PREMIER si tu dois changer
@@ -8,15 +8,15 @@
 ## 1. Le concept en 3 lignes
 - On construit un **système d'orchestration agentic** (jamais "système d'exploitation").
 - L'UI (Tauri/Rust, multi-fournisseur local+API) n'est qu'un **terminal humain** sur le vrai système.
-- Le vrai système = le **coffre Obsidian** (`obsi_vault/`), Markdown + rétroliens, Git. Les agents y vivent.
+- Le vrai système = le **coffre Obsidian** (`obsia_vault/`), Markdown + rétroliens, Git. Les agents y vivent.
 
 ## 2. Les deux coffre (frontière absolue)
 | Coffre | Rôle | À faire |
 |---|---|---|
-| `obsi_vault/` | **Le coffre vivant** — le SEUL endroit où l'on exécute des choses. Mémoire, agents, skills, MCP, scripts, git. | ✅ On y construit tout. |
+| `obsia_vault/` | **Le coffre vivant** — le SEUL endroit où l'on exécute des choses. Mémoire, agents, skills, MCP, scripts, git. | ✅ On y construit tout. |
 | `Obsia/` | **Historique / prototype** (ancien projet Obsidian "système d'exploitation"). | ⛔ Ne pas toucher. Lecture seule. |
 
-Rappel : dans `obsi_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` comptent à ce stade.
+Rappel : dans `obsia_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` comptent à ce stade.
 
 ## 3. L'application (terminal humain) — Tauri/Rust
 - **Multi-fournisseur** : bouton "fournisseur" (choix local ou API) + menu déroulant (sélection LLM).
@@ -24,7 +24,7 @@ Rappel : dans `obsi_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` com
 - Les zones contrôle + gestionnaire de fichier sont à gauche/droite et se réduisent.
 - L'UI est modifiable via le chat de l'agent "assistant" (patches).
 
-## 4. Le coffre OBSI (obsi_vault/)
+## 4. Le coffre OBSIA (obsia_vault/)
 - `VAULT.md` — contrat d'exploitation (porte d'entrée humaine + agent). **Lis-le en premier.**
 - `README.md` — conventions, démarrage, sécurité.
 - `/mémoire/agent N/` — mémoire : `sommaire.md` → `projets K/` → `AAAA-MM-JJ-titre.md` (rétroliens).
@@ -34,12 +34,12 @@ Rappel : dans `obsi_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` com
 - `/IA/system/` — contrat, index, fournisseurs.
 - `scripts/regenerate_sommaire.py` — régénère les `sommaire.md` (jamais à la main).
 
-## 5. Les 3 agents (obsi_vault/IA/agents/)
+## 5. Les 3 agents (obsia_vault/IA/agents/)
 - **bibliothécaire** (ex obsidian-manager) — indexe le coffre, récupère le contexte, **lecture seule**.
 - **développeur** — génère/corrige du code, crée des skills, **patch Git + revue humaine**.
 - **assistant de bureau** — doc, mail, calendrier, navigation web (officecli, cron, chrome-devtools).
 
-## 6. Les 6 skills (obsi_vault/IA/skills/)
+## 6. Les 6 skills (obsia_vault/IA/skills/)
 - **obsidian-manager** — gestion du coffre (recherche, rétroliens, résumés, index), lecture seule.
 - **web-research**, **officecli**, **troubleshooting**, **cron**, **skill-créator**.
 
