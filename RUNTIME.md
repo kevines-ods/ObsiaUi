@@ -37,7 +37,7 @@ Rappel : dans `obsia_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` co
 ## 5. Les 3 agents (obsia_vault/IA/agents/)
 - **bibliothécaire** (ex obsidian-manager) — indexe le coffre, récupère le contexte, **lecture seule**.
 - **développeur** — génère/corrige du code, crée des skills, **patch Git + revue humaine**.
-- **assistant de bureau** — doc, mail, calendrier, navigation web (officecli, cron, chrome-devtools).
+- **assistant-de-bureau** — doc, mail, calendrier, navigation web (officecli, cron, chrome-devtools).
 
 ## 6. Les 6 skills (obsia_vault/IA/skills/)
 - **obsidian-manager** — gestion du coffre (recherche, rétroliens, résumés, index), lecture seule.
