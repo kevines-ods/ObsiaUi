@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AgentSelector from "./components/AgentSelector";
 import ChatZone from "./components/ChatZone";
 import ControlPanel from "./components/ControlPanel";
 import FileManager from "./components/FileManager";
@@ -22,6 +23,7 @@ export default function App() {
             Files {rightOpen ? "▶" : "◀"}
           </button>
         </div>
+        <AgentSelector />
         <ProviderSelector />
       </header>
       <div className="zones">

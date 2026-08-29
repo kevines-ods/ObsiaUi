@@ -118,3 +118,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .fm-editor{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border);padding-top:8px;min-height:160px}
 .fm-editor-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .fm-editor textarea{flex:1;min-height:120px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45}
+
+/* ===== Agent selector ===== */
+.agent-selector{min-width:150px}
+.agent-dropdown{min-width:280px;max-width:420px}
+.agent-item{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--text);cursor:pointer;text-align:left}
+.agent-item:hover{background:var(--panel);border-color:var(--border)}
+.agent-item.active{background:var(--panel);border-color:var(--accent)}
+.agent-desc{margin:4px 0 6px 0;font-size:12px;color:var(--muted);line-height:1.4}
+.agent-skill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:11px}
+.chat-agent-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel)}
+.chat-agent-name{font-size:12px;color:var(--text)}

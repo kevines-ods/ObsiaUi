@@ -21,7 +21,7 @@ const SYSTEM_PROMPT =
   "Tu es un assistant intégré à un coffre Obsidian. Réponds de façon claire et concise.";
 
 export default function ChatZone(): React.JSX.Element {
-  const { selectedProviderId, selectedModel } = useApp();
+  const { selectedProviderId, selectedModel, agents, selectedAgent } = useApp();
   const { tokens, isStreaming, isDone, error, send, stop } = useLlmStream();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -56,9 +56,14 @@ export default function ChatZone(): React.JSX.Element {
     const text = input.trim();
     if (!text || !selectedModel || isStreaming) return;
 
+    const activeAgent = agents.find((a) => a.name === selectedAgent);
+    const systemPrompt = activeAgent
+      ? `Tu agis selon l'agent « ${activeAgent.name} ».\n${activeAgent.description}`.trim()
+      : SYSTEM_PROMPT;
+
     const userMsg: ChatMessage = { role: "user", content: text };
     const next: ChatMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...messages,
       userMsg,
     ];
@@ -70,7 +75,7 @@ export default function ChatZone(): React.JSX.Element {
 
     await send(next, { provider: selectedProviderId, model: selectedModel });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, messages, selectedProviderId, selectedModel, isStreaming, send]);
+  }, [input, messages, selectedProviderId, selectedModel, isStreaming, agents, selectedAgent, send]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -87,9 +92,18 @@ export default function ChatZone(): React.JSX.Element {
   // Messages historiques (inclut le pending assistant une fois commit).
   const history = pendingAt === null ? messages : messages.slice(0, pendingAt);
   const streamingContent = isStreaming || !isDone ? tokens : null;
+  const activeAgent = agents.find((a) => a.name === selectedAgent);
 
   return (
     <div className="chat-zone">
+      {activeAgent && (
+        <div className="chat-agent-bar">
+          <span className="chat-agent-name">🤖 {activeAgent.name}</span>
+          {activeAgent.readOnly && (
+            <span className="badge badge-err">lecture seule</span>
+          )}
+        </div>
+      )}
       <div className="messages" aria-live="polite">
         {history.length === 0 && (
           <div className="empty-state">

@@ -17,6 +17,8 @@ import {
 } from "react";
 
 import * as ipc from "../lib/ipc";
+import { loadAgents } from "../lib/agents";
+import type { AgentInfo } from "../types/agent";
 import type { ConfigPatch, ConfigView, ProviderHealth, ProviderInfo } from "../types/ipc";
 
 interface AppContextValue {
@@ -33,6 +35,12 @@ interface AppContextValue {
   testProvider: (providerId: string) => Promise<ProviderHealth>;
   health: Record<string, ProviderHealth>;
   testingId: string | null;
+  // Agents (IA/agents/*.md)
+  agents: AgentInfo[];
+  loadingAgents: boolean;
+  selectedAgent: string | null;
+  loadAgents: () => Promise<void>;
+  selectAgent: (name: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -55,6 +63,9 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
   const [selectedModel, setSelectedModel] = useState("");
   const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(true);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const hydratedRef = useRef(false);
 
   const refreshConfig = useCallback(async (): Promise<void> => {
@@ -89,15 +100,36 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     }
   }, [config?.defaultProvider]);
 
-  // Hydratation initiale : config puis providers.
+  const refreshAgents = useCallback(async (): Promise<void> => {
+    setLoadingAgents(true);
+    try {
+      const list = await loadAgents();
+      setAgents(list);
+      // Sélection initiale : premier agent par défaut.
+      setSelectedAgent((prev) =>
+        prev && list.some((a) => a.name === prev) ? prev : (list[0]?.name ?? null),
+      );
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingAgents(false);
+    }
+  }, []);
+
+  const selectAgent = useCallback((name: string): void => {
+    setSelectedAgent(name);
+  }, []);
+
+  // Hydratation initiale : config, providers puis agents.
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     void (async () => {
       await refreshConfig();
       await refreshProviders();
+      await refreshAgents();
     })();
-  }, [refreshConfig, refreshProviders]);
+  }, [refreshConfig, refreshProviders, refreshAgents]);
 
   // Les modèles du provider sélectionné alimentent la sélection par défaut.
   useEffect(() => {
@@ -167,6 +199,12 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       testProvider,
       health,
       testingId,
+      // Agents
+      agents,
+      loadingAgents,
+      selectedAgent,
+      loadAgents: refreshAgents,
+      selectAgent,
     }),
     [
       config,
@@ -182,6 +220,12 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       testProvider,
       health,
       testingId,
+      // Agents
+      agents,
+      loadingAgents,
+      selectedAgent,
+      refreshAgents,
+      selectAgent,
     ],
   );
 
