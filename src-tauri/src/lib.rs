@@ -1,12 +1,14 @@
 use crate::commands::{
-    chat_send, chat_stream, config_get, config_set, init_model_registry, init_provider_pool,
-    init_provider_registry, init_vault, llm_health_check, models_list, provider_test,
-    providers_list, scan_local_models, vault_list, vault_path, vault_read, vault_write,
+    agent_read, agents_list, chat_send, chat_stream, config_get, config_set, init_model_registry,
+    init_provider_pool, init_provider_registry, init_vault, llm_health_check, models_list,
+    provider_test, providers_list, scan_local_models, vault_list, vault_path, vault_read,
+    vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;
 use tracing::warn;
 
+mod agents;
 mod commands;
 mod config;
 mod llm;
@@ -66,6 +68,9 @@ pub fn run() {
             vault_read,
             vault_write,
             vault_path,
+            // Agents
+            agents_list,
+            agent_read,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

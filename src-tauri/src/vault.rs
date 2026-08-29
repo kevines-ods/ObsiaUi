@@ -97,7 +97,7 @@ impl VaultState {
         }
     }
 
-    fn ensure_configured(&self) -> Result<(), String> {
+    pub(crate) fn ensure_configured(&self) -> Result<(), String> {
         if self.root.as_os_str().is_empty() {
             return Err(
                 "coffre non configuré (OBSIA_VAULT_PATH ou config vault_path requis)".into(),
@@ -180,7 +180,7 @@ impl VaultState {
     /// - extension `.md` uniquement
     /// - pour l'écriture : pas dans les dossiers protégés
     /// - le résultat (ou son parent) reste DANS la racine canonicalisée
-    fn safe_join(&self, rel: &str, for_read: bool) -> Result<PathBuf, String> {
+    pub(crate) fn safe_join(&self, rel: &str, for_read: bool) -> Result<PathBuf, String> {
         self.ensure_configured()?;
         if rel.trim().is_empty() {
             return Err("chemin vide".into());
@@ -248,7 +248,7 @@ impl VaultState {
     }
 
     /// Convertit un chemin absolu en chemin relatif au coffre.
-    fn to_relative(&self, path: &Path) -> Option<String> {
+    pub(crate) fn to_relative(&self, path: &Path) -> Option<String> {
         path.strip_prefix(&self.root)
             .ok()
             .map(|p| p.to_string_lossy().replace('\\', "/"))

@@ -6,10 +6,12 @@
 //!   `llm_health_check`, `scan_local_models`
 //! - Config : `config_get`, `config_set`
 //! - Coffre : `vault_list`, `vault_read`, `vault_write`, `vault_path`
+//! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //!
 //! Événements de stream (rétro-compatibles) : `llm:token`, `llm:done`, `llm:error`.
 
 use crate::config::{ConfigPatch, ConfigState, ConfigView};
+use crate::agents::{AgentDoc, AgentInfo};
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
@@ -608,4 +610,21 @@ mod tests {
         }
         assert!(chunks > 0, "le stream doit émettre au moins un chunk");
     }
+}
+
+// ===== Agents =====
+
+/// Liste les agents du coffre (frontmatter validé par le backend).
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn agents_list(vault: State<'_, VaultState>) -> Result<Vec<AgentInfo>, String> {
+    vault.agents_list()
+}
+
+/// Lit un agent complet (frontmatter + corps). `path` = `IA/agents/x.md`
+/// ou simple nom `x.md`. Confiné à `IA/agents/` (sandbox + validation).
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn agent_read(vault: State<'_, VaultState>, path: String) -> Result<AgentDoc, String> {
+    vault.agent_read(&path)
 }
