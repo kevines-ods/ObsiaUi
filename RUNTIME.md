@@ -14,9 +14,10 @@
 | Coffre | Rôle | À faire |
 |---|---|---|
 | `obsia_vault/` | **Le coffre vivant** — le SEUL endroit où l'on exécute des choses. Mémoire, agents, skills, MCP, scripts, git. | ✅ On y construit tout. |
-| `Obsia/` | **Historique / prototype** (ancien projet Obsidian "système d'exploitation"). | ⛔ Ne pas toucher. Lecture seule. |
+| `build/` | **Le framework** — UI React + backend Rust/Tauri. Accès réservé à l'agent `assistant` (patch revu). | ✅ Modifiable via le chat (patches). |
 
-Rappel : dans `obsia_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` comptent à ce stade.
+Rappel : dans `obsia_vault/`, seuls les dossiers `IA/agents/`, `IA/skills/`,
+`IA/MCP/`, `mémoire/`, `scripts/` et `brouillon/` comptent à ce stade.
 
 ## 3. L'application (terminal humain) — Tauri/Rust
 - **Multi-fournisseur** : bouton "fournisseur" (choix local ou API) + menu déroulant (sélection LLM).
@@ -27,21 +28,19 @@ Rappel : dans `obsia_vault/`, seuls les dossiers `IA/agents/` et `IA/skills/` co
 ## 4. Le coffre OBSIA (obsia_vault/)
 - `VAULT.md` — contrat d'exploitation (porte d'entrée humaine + agent). **Lis-le en premier.**
 - `README.md` — conventions, démarrage, sécurité.
-- `/mémoire/agent N/` — mémoire : `sommaire.md` → `projets K/` → `AAAA-MM-JJ-titre.md` (rétroliens).
+- `/mémoire/<agent>/<projet>/` — mémoire par **nom d'agent** et **nom de projet** : `sommaire.md` → `AAAA-MM-JJ-titre.md` (rétroliens). Jamais `agent 1`/`projets 2`.
 - `/IA/agents/*.md` — système prompt + skills/MCP référencés.
 - `/IA/skills/*.md` — comportement réutilisable (un skill = une compétence).
 - `/IA/MCP/*.md` — outils structurés (lecture seule / revue humaine).
 - `/IA/system/` — contrat, index, fournisseurs.
 - `scripts/regenerate_sommaire.py` — régénère les `sommaire.md` (jamais à la main).
 
-## 5. Les 3 agents (obsia_vault/IA/agents/)
-- **bibliothécaire** (ex obsidian-manager) — indexe le coffre, récupère le contexte, **lecture seule**.
-- **développeur** — génère/corrige du code, crée des skills, **patch Git + revue humaine**.
-- **assistant-de-bureau** — doc, mail, calendrier, navigation web (officecli, cron, chrome-devtools).
+## 5. L'agent (obsia_vault/IA/agents/)
+- **assistant** — agent de base de l'app : modifie l'UI, ajoute des fonctionnalités, crée des skills. Seul agent autorisé sur `build/` (patch + tests obligatoires).
 
-## 6. Les 6 skills (obsia_vault/IA/skills/)
-- **obsidian-manager** — gestion du coffre (recherche, rétroliens, résumés, index), lecture seule.
-- **web-research**, **officecli**, **troubleshooting**, **cron**, **skill-créator**.
+## 6. Les 12 skills (obsia_vault/IA/skills/)
+- **core** : `obsidian-manager` (gestion du coffre), `createur-de-skill` (création de skills).
+- **outil** : `bureautique`, `conteneurs-docker`, `cron`, `diagnostic-linux`, `mermaid`, `pdf`, `proxmox`, `remediation-linux`, `sauvegardes`, `traefik`.
 
 ## 7. Règles de sécurité (incontournables)
 - Accès scoped au coffre uniquement ; lecture seule d'abord, écritures revuées (patches Git).

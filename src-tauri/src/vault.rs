@@ -4,8 +4,10 @@
 //! - Toute résolution de chemin passe par [`VaultState::safe_join`] qui
 //!   refuse `..` (path traversal) et les chemins absolus.
 //! - Seuls les fichiers `.md` sont lisibles/écrivables (notes markdown).
-//! - Écriture interdite dans les dossiers protégés (`IA/`, `mémoire/`,
-//!   `scripts/`) et dans le code framework (`src/`, `src-tauri/`, ...).
+//! - Le coffre est en **lecture seule** : l'écriture n'est autorisée que dans
+//!   `brouillon/` (zone provisoire dédiée). Partout ailleurs, toute écriture
+//!   est refusée — les modifications passent par des patchs Git revus
+//!   (cf. `obsia_vault/IA/system/VAULT-CONTRACT.md` §2 et §5).
 //! - La racine du coffre est canonicalisée : un symlink ne peut pas
 //!   sortir du coffre.
 
@@ -25,8 +27,9 @@ const EXCLUDED_DIRS: &[&str] = &[
     "dist",
 ];
 
-/// Dossiers protégés : lecture possible, ÉCRITURE refusée.
-const PROTECTED_DIRS: &[&str] = &["IA", "mémoire", "scripts"];
+/// Zones d'écriture autorisées (liste blanche). Tout le reste du coffre est
+/// en lecture seule : les modifications passent par des patchs Git revus.
+const WRITABLE_DIRS: &[&str] = &["brouillon"];
 
 /// Entrée de note du coffre, exposée au frontend via IPC.
 #[derive(Debug, Clone, Serialize)]
@@ -210,11 +213,16 @@ impl VaultState {
             return Err("seuls les fichiers .md sont accessibles dans le coffre".into());
         }
 
-        // Dossiers protégés : écriture refusée
+        // Zone d'écriture : seul le dossier `brouillon/` est écrivable
         if !for_read {
-            if let Some(first) = &first_component {
-                if PROTECTED_DIRS.contains(&first.as_str()) {
-                    return Err(format!("dossier protégé, écriture refusée : {first}"));
+            match &first_component {
+                Some(first) if WRITABLE_DIRS.contains(&first.as_str()) => {}
+                _ => {
+                    return Err(
+                        "écriture refusée : le coffre est en lecture seule, \
+                         seuls les fichiers de brouillon/ sont écrivables"
+                            .into(),
+                    )
                 }
             }
         }
@@ -270,6 +278,7 @@ mod tests {
         let root = dir.path();
         fs::create_dir_all(root.join("IA")).unwrap();
         fs::create_dir_all(root.join("notes")).unwrap();
+        fs::create_dir_all(root.join("brouillon")).unwrap();
         fs::create_dir_all(root.join("src-tauri")).unwrap();
         fs::write(root.join("note1.md"), "# Note 1").unwrap();
         fs::write(root.join("IA/prompt.md"), "# Prompt").unwrap();
@@ -302,11 +311,16 @@ mod tests {
     }
 
     #[test]
-    fn write_ok_et_list() {
+    fn write_ok_dans_brouillon() {
         let (_tmp, vault) = temp_vault();
-        let entry = vault.write_note("notes/nouvelle.md", "# Nouvelle").unwrap();
-        assert_eq!(entry.path, "notes/nouvelle.md");
-        assert_eq!(vault.read_note("notes/nouvelle.md").unwrap(), "# Nouvelle");
+        let entry = vault
+            .write_note("brouillon/nouvelle.md", "# Nouvelle")
+            .unwrap();
+        assert_eq!(entry.path, "brouillon/nouvelle.md");
+        assert_eq!(
+            vault.read_note("brouillon/nouvelle.md").unwrap(),
+            "# Nouvelle"
+        );
     }
 
     #[test]
@@ -321,15 +335,23 @@ mod tests {
     fn extension_non_md_refusee() {
         let (_tmp, vault) = temp_vault();
         assert!(vault.read_note("secret.txt").is_err());
-        assert!(vault.write_note("notes/script.sh", "#!/bin/sh").is_err());
+        assert!(vault
+            .write_note("brouillon/script.sh", "#!/bin/sh")
+            .is_err());
     }
 
     #[test]
-    fn ecriture_dossier_protege_refusee() {
+    fn ecriture_hors_brouillon_refusee() {
         let (_tmp, vault) = temp_vault();
+        // Tout le coffre est en lecture seule, sauf brouillon/
         assert!(vault.write_note("IA/prompt.md", "# modifié").is_err());
         assert!(vault.write_note("scripts/x.md", "x").is_err());
-        // Lecture OK en revanche
+        assert!(vault.write_note("note1.md", "# modifié").is_err());
+        assert!(vault.write_note("notes/sub.md", "# modifié").is_err());
+        // Lecture OK en revanche, partout
         assert_eq!(vault.read_note("IA/prompt.md").unwrap(), "# Prompt");
+        assert_eq!(vault.read_note("note1.md").unwrap(), "# Note 1");
+        // L'écriture dans brouillon/ est la seule autorisée
+        assert!(vault.write_note("brouillon/x.md", "x").is_ok());
     }
 }
