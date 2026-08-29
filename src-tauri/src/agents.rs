@@ -14,6 +14,7 @@ pub const AGENTS_DIR: &str = "IA/agents";
 
 /// Métadonnées d'un agent, parsées et validées depuis le frontmatter.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentInfo {
     /// Chemin relatif au coffre (ex. `IA/agents/assistant.md`).
     pub path: String,
@@ -26,6 +27,7 @@ pub struct AgentInfo {
 
 /// Agent complet : métadonnées + corps (le system prompt, sans frontmatter).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentDoc {
     #[serde(flatten)]
     pub info: AgentInfo,
@@ -257,5 +259,25 @@ Orchestre le coffre et modifie l'UI.
 
         let vieux_schema = "---\nschema: 0\nkind: agent\nname: x\ndescription: d\n---\n";
         assert!(parse_agent(vieux_schema, rel).is_err());
+    }
+
+    #[test]
+    fn serialisation_camel_case() {
+        // Le contrat IPC est camelCase partout (ConfigView, VaultEntry…) :
+        // read_only -> readOnly. Test de non-régression du format.
+        let info = AgentInfo {
+            path: "IA/agents/assistant.md".into(),
+            name: "assistant".into(),
+            description: "d".into(),
+            skills: vec!["cron".into()],
+            mcp: vec![],
+            read_only: true,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(
+            json.contains("\"readOnly\":true"),
+            "readOnly attendu, obtenu: {json}"
+        );
+        assert!(!json.contains("read_only"), "snake_case interdit: {json}");
     }
 }
