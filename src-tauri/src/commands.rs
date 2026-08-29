@@ -10,8 +10,8 @@
 //!
 //! Événements de stream (rétro-compatibles) : `llm:token`, `llm:done`, `llm:error`.
 
-use crate::config::{ConfigPatch, ConfigState, ConfigView};
 use crate::agents::{AgentDoc, AgentInfo};
+use crate::config::{ConfigPatch, ConfigState, ConfigView};
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};

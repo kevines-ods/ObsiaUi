@@ -131,8 +131,8 @@ struct RawFrontmatter {
 /// Parse et valide le frontmatter d'un agent (schema 1, kind == "agent").
 fn parse_agent(raw: &str, rel: &str) -> Result<AgentInfo, String> {
     let (fm, _) = split_frontmatter(raw)?;
-    let raw_fm: RawFrontmatter = serde_yaml::from_str(fm)
-        .map_err(|e| format!("YAML invalide dans le frontmatter: {e}"))?;
+    let raw_fm: RawFrontmatter =
+        serde_yaml::from_str(fm).map_err(|e| format!("YAML invalide dans le frontmatter: {e}"))?;
     if raw_fm.kind.as_deref() != Some("agent") {
         return Err("kind != agent — ce n'est pas un agent".into());
     }
@@ -195,10 +195,13 @@ Orchestre le coffre et modifie l'UI.
             "# Pas de frontmatter du tout\n",
         )
         .unwrap();
-        fs::write(root.join("IA/agents/autre.md"), "---\nschema: 1\nkind: skill\nname: x\n---\n").unwrap();
+        fs::write(
+            root.join("IA/agents/autre.md"),
+            "---\nschema: 1\nkind: skill\nname: x\n---\n",
+        )
+        .unwrap();
         fs::write(root.join("IA/notes/note.md"), "# note hors agents").unwrap();
-        let state =
-            VaultState::resolve(Some(root.to_string_lossy().to_string())).unwrap();
+        let state = VaultState::resolve(Some(root.to_string_lossy().to_string())).unwrap();
         (dir, state)
     }
 
@@ -233,7 +236,10 @@ Orchestre le coffre et modifie l'UI.
         let (_tmp, vault) = temp_vault();
         assert!(vault.agent_read("../secret.md").is_err());
         assert!(vault.agent_read("IA/notes/note.md").is_err());
-        assert!(vault.agent_read("casse.md").is_err(), "frontmatter invalide");
+        assert!(
+            vault.agent_read("casse.md").is_err(),
+            "frontmatter invalide"
+        );
     }
 
     #[test]

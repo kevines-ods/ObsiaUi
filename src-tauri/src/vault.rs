@@ -218,11 +218,9 @@ impl VaultState {
             match &first_component {
                 Some(first) if WRITABLE_DIRS.contains(&first.as_str()) => {}
                 _ => {
-                    return Err(
-                        "écriture refusée : le coffre est en lecture seule, \
+                    return Err("écriture refusée : le coffre est en lecture seule, \
                          seuls les fichiers de brouillon/ sont écrivables"
-                            .into(),
-                    )
+                        .into())
                 }
             }
         }
