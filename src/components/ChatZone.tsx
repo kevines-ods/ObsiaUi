@@ -125,7 +125,7 @@ export default function ChatZone(): React.JSX.Element {
       {activeAgent && (
         <div className="chat-agent-bar">
           <span className="chat-agent-name">🤖 {activeAgent.name}</span>
-          {activeAgent.read_only && (
+          {activeAgent.readOnly && (
             <span className="badge badge-err">lecture seule</span>
           )}
         </div>

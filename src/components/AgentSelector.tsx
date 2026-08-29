@@ -1,8 +1,8 @@
 /**
  * Sélecteur d'agent (zone dédiée, topbar).
  *
- * - Liste les agents du coffre `IA/agents/*.md` via `vault_list` + `vault_read`
- *   (les agents sont des notes Markdown avec frontmatter).
+ * - Liste les agents du coffre `IA/agents/*.md` via `agents_list` (frontmatter
+ *   validé côté backend).
  * - Affiche la description, les skills et le statut lecture seule.
  * - La sélection est partagée via `AppContext` (utilisée notamment comme
  *   contexte système de la conversation).
@@ -75,7 +75,7 @@ export default function AgentSelector(): React.JSX.Element {
                 }}
               >
                 <span className="cp-label">{agent.name}</span>
-                {agent.read_only && (
+                {agent.readOnly && (
                   <span className="badge badge-err">lecture seule</span>
                 )}
               </button>

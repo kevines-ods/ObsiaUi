@@ -122,7 +122,7 @@ export interface VaultEntry {
   modified: string;
 }
 
-// ===== Agents (agents.rs = snake_case, pas de rename_all) =====
+// ===== Agents (agents.rs = camelCase) =====
 
 export interface AgentInfo {
   /** Chemin relatif au coffre, ex. `IA/agents/assistant.md`. */
@@ -134,7 +134,7 @@ export interface AgentInfo {
   /** Idem. */
   mcp: string[];
   /** Bool Rust (plus besoin de parser "true"/"false"). */
-  read_only: boolean;
+  readOnly: boolean;
 }
 
 export interface AgentDoc extends AgentInfo {
