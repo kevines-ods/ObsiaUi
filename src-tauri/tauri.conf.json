@@ -1,6 +1,7 @@
 {
   "identifier": "com.obsia.desktop",
   "build": {
+    "beforeDevCommand": "cd ../src && npm run dev",
     "frontendDist": "../src/dist",
     "devUrl": "http://localhost:1420"
   },
