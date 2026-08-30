@@ -23,6 +23,7 @@ pub const ENV_VAR_BY_PROVIDER: &[(&str, &str)] = &[
     ("gemini", "GEMINI_API_KEY"),
     ("mistral", "MISTRAL_API_KEY"),
     ("cohere", "COHERE_API_KEY"),
+    ("llamacpp", "LLAMA_API_KEY"),
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -40,6 +41,9 @@ pub struct AppConfig {
     /// Host Ollama personnalisé (ex: http://localhost:11434).
     #[serde(default)]
     pub ollama_host: Option<String>,
+    /// Host llama.cpp personnalisé (ex: http://localhost:8080).
+    #[serde(default)]
+    pub llamacpp_host: Option<String>,
 }
 
 /// Vue exposée au frontend : jamais les valeurs de clés, seulement leur
@@ -51,6 +55,7 @@ pub struct ConfigView {
     pub vault_path: Option<String>,
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
+    pub llamacpp_host: Option<String>,
 }
 
 /// Patch de mise à jour de la config (champs optionnels = non modifiés).
@@ -61,6 +66,7 @@ pub struct ConfigPatch {
     pub vault_path: Option<String>,
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
+    pub llamacpp_host: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +134,7 @@ impl AppConfig {
             vault_path: self.vault_path.clone(),
             default_provider: self.default_provider.clone(),
             ollama_host: self.ollama_host.clone(),
+            llamacpp_host: self.llamacpp_host.clone(),
         }
     }
 
@@ -152,6 +159,9 @@ impl AppConfig {
         }
         if let Some(p) = patch.ollama_host {
             self.ollama_host = if p.trim().is_empty() { None } else { Some(p) };
+        }
+        if let Some(p) = patch.llamacpp_host {
+            self.llamacpp_host = if p.trim().is_empty() { None } else { Some(p) };
         }
     }
 }

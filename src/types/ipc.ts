@@ -105,6 +105,7 @@ export interface ConfigPatch {
   vaultPath?: string | null;
   defaultProvider?: string | null;
   ollamaHost?: string | null;
+  llamacppHost?: string | null;
 }
 
 export interface ConfigView {
@@ -112,6 +113,48 @@ export interface ConfigView {
   vaultPath?: string | null;
   defaultProvider?: string | null;
   ollamaHost?: string | null;
+  llamacppHost?: string | null;
+}
+
+// ===== Runtimes locaux (discovery.rs) =====
+
+/** `RuntimeKind` est sérialisé en kebab-case côté Rust. */
+export type RuntimeKind = "ollama" | "llama-cpp";
+
+/**
+ * Origine d'une adresse détectée — énum Rust étiquetée
+ * (`tag = "type"`, `content = "detail"`), variantes en camelCase.
+ */
+export type RuntimeOrigin =
+  | { type: "config" }
+  | { type: "env"; detail: string }
+  | { type: "process"; detail: string }
+  | { type: "defaultPort" };
+
+export interface DetectedRuntime {
+  kind: RuntimeKind;
+  /** Identifiant du provider correspondant (`ollama`, `llamacpp`). */
+  providerId: string;
+  label: string;
+  baseUrl: string;
+  origin: RuntimeOrigin;
+  reachable: boolean;
+  version?: string | null;
+  models: string[];
+  error?: string | null;
+}
+
+export interface DetectedBinary {
+  kind: RuntimeKind;
+  name: string;
+  path: string;
+}
+
+export interface RuntimeScan {
+  /** Adresses sondées, joignables en premier. */
+  runtimes: DetectedRuntime[];
+  /** Binaires présents dans le PATH, daemon démarré ou non. */
+  binaries: DetectedBinary[];
 }
 
 // ===== Coffre (vault.rs = camelCase) =====

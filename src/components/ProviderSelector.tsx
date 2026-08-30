@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { useApp } from "../context/AppContext";
+import RuntimePanel from "./RuntimePanel";
 
 export default function ProviderSelector(): React.JSX.Element {
   const {
@@ -60,6 +61,8 @@ export default function ProviderSelector(): React.JSX.Element {
 
       {open && (
         <div className="provider-dropdown" role="listbox" aria-label="Fournisseurs et modèles">
+          <RuntimePanel />
+
           <div className="dropdown-head">
             <span>Fournisseurs</span>
             <button

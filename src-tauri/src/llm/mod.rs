@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod fallback;
 pub mod gemini;
+pub mod llamacpp;
 pub mod ollama;
 pub mod openai;
 pub mod openrouter;
@@ -16,6 +17,8 @@ pub use anthropic::AnthropicProvider;
 pub use fallback::{PoolStrategy, ProviderPool};
 #[allow(unused_imports)]
 pub use gemini::GeminiProvider;
+#[allow(unused_imports)]
+pub use llamacpp::LlamaCppProvider;
 #[allow(unused_imports)]
 pub use ollama::OllamaProvider;
 #[allow(unused_imports)]

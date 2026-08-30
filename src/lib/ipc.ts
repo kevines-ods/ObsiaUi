@@ -23,6 +23,7 @@ import type {
   ModelInfo,
   ProviderHealth,
   ProviderInfo,
+  RuntimeScan,
   VaultEntry,
 } from "../types/ipc";
 
@@ -48,6 +49,13 @@ export const llmHealthCheck = (): Promise<ProviderHealth[]> =>
 
 export const scanLocalModels = (): Promise<ModelInfo[]> =>
   invoke<ModelInfo[]>("scan_local_models");
+
+/**
+ * Détecte les moteurs LLM locaux (Ollama, llama.cpp) et recâble les providers
+ * sur les adresses qui répondent réellement.
+ */
+export const runtimesDetect = (): Promise<RuntimeScan> =>
+  invoke<RuntimeScan>("runtimes_detect");
 
 export const configGet = (): Promise<ConfigView> =>
   invoke<ConfigView>("config_get");

@@ -47,6 +47,28 @@ impl ProviderPool {
         providers.push(provider);
     }
 
+    /// Remplace l'intégralité des providers du pool.
+    ///
+    /// Utilisé après une redétection des runtimes locaux : un daemon qui a
+    /// changé d'adresse doit remplacer l'ancienne entrée, pas s'y ajouter.
+    /// Les disjoncteurs sont réarmés — un provider ouvert parce que l'ancienne
+    /// adresse ne répondait plus resterait sinon exclu du pool.
+    pub async fn replace_all(&self, providers: Vec<Arc<dyn LlmProvider>>) {
+        let mut guard = self.providers.write().await;
+        *guard = providers;
+        drop(guard);
+        self.circuit_breakers.write().await.clear();
+    }
+
+    /// Nombre de providers actuellement dans le pool.
+    pub async fn len(&self) -> usize {
+        self.providers.read().await.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        self.len().await == 0
+    }
+
     pub async fn get_available(&self) -> Vec<Arc<dyn LlmProvider>> {
         let providers = self.providers.read().await;
         let breakers = self.circuit_breakers.read().await;

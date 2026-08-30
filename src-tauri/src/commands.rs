@@ -7,13 +7,15 @@
 //! - Config : `config_get`, `config_set`
 //! - Coffre : `vault_list`, `vault_read`, `vault_write`, `vault_path`
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
+//! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //!
 //! Événements de stream (rétro-compatibles) : `llm:token`, `llm:done`, `llm:error`.
 
 use crate::agents::{AgentDoc, AgentInfo};
-use crate::config::{ConfigPatch, ConfigState, ConfigView};
+use crate::config::{AppConfig, ConfigPatch, ConfigState, ConfigView};
+use crate::discovery::{self, RuntimeKind, RuntimeScan};
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
-use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
+use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
 use crate::llm::streaming::StreamingManager;
 use crate::vault::{VaultEntry, VaultState};
@@ -71,12 +73,13 @@ pub fn init_provider_registry(config: &ConfigState) -> ProviderRegistryState {
     let registry = Arc::new(ProviderRegistry::new());
     let cfg = config.read();
 
-    // Ollama : toujours disponible (local) — host personnalisable via config
-    let ollama = match &cfg.ollama_host {
-        Some(host) => crate::llm::ollama::OllamaProvider::new(host.clone()),
-        None => crate::llm::ollama::OllamaProvider::from_env(),
-    };
-    tauri::async_runtime::block_on(registry.register(Arc::new(ollama)));
+    // Runtimes locaux : adresse issue de la config, sinon de l'environnement,
+    // sinon du port conventionnel. La détection complète (processus, ports
+    // exotiques) est déclenchée par `runtimes_detect` — la faire ici
+    // retarderait l'ouverture de la fenêtre du temps des sondes réseau.
+    for provider in local_providers_from_config(&cfg) {
+        tauri::async_runtime::block_on(registry.register(provider));
+    }
 
     // Providers API : clé env var OU config
     let register_api = |provider_id: &str, key: Option<String>| {
@@ -102,6 +105,66 @@ pub fn init_provider_registry(config: &ConfigState) -> ProviderRegistryState {
     register_api("gemini", cfg.api_key_for("gemini"));
 
     registry
+}
+
+/// Providers locaux déduits de la seule config (aucun accès réseau).
+///
+/// Ollama est toujours enregistré : c'est le runtime local par défaut, et un
+/// provider présent mais injoignable donne à l'interface un message de santé
+/// exploitable, là où un provider absent ne dit rien. llama.cpp n'apparaît
+/// que si l'utilisateur a explicitement donné une adresse — sinon il faut
+/// attendre la détection pour savoir s'il tourne.
+fn local_providers_from_config(cfg: &AppConfig) -> Vec<Arc<dyn LlmProvider>> {
+    let mut out: Vec<Arc<dyn LlmProvider>> = Vec::new();
+    let ollama_host = cfg
+        .ollama_host
+        .clone()
+        .or_else(|| std::env::var("OLLAMA_HOST").ok())
+        .unwrap_or_default();
+    out.push(Arc::new(crate::llm::ollama::OllamaProvider::new(
+        ollama_host,
+    )));
+
+    if let Some(host) = cfg.llamacpp_host.as_ref().filter(|h| !h.trim().is_empty()) {
+        out.push(Arc::new(crate::llm::llamacpp::LlamaCppProvider::new(
+            host.clone(),
+            cfg.api_key_for("llamacpp"),
+        )));
+    }
+    out
+}
+
+/// Providers locaux déduits d'un scan des runtimes.
+///
+/// On retient la **première adresse joignable** de chaque famille : la liste
+/// est déjà triée par priorité d'origine (config, puis environnement, puis
+/// processus détecté, puis port conventionnel). Si aucune adresse ne répond,
+/// on retombe sur la config pour qu'Ollama reste visible dans l'interface
+/// avec son erreur de santé.
+fn local_providers_from_scan(scan: &RuntimeScan, cfg: &AppConfig) -> Vec<Arc<dyn LlmProvider>> {
+    let mut out: Vec<Arc<dyn LlmProvider>> = Vec::new();
+
+    match scan.first_reachable(RuntimeKind::Ollama) {
+        Some(rt) => out.push(Arc::new(crate::llm::ollama::OllamaProvider::new(
+            rt.base_url.clone(),
+        ))),
+        None => out.push(Arc::new(crate::llm::ollama::OllamaProvider::new(
+            cfg.ollama_host.clone().unwrap_or_default(),
+        ))),
+    }
+
+    // llama.cpp : enregistré s'il répond, ou si l'utilisateur l'a configuré.
+    let llamacpp_url = scan
+        .first_reachable(RuntimeKind::LlamaCpp)
+        .map(|rt| rt.base_url.clone())
+        .or_else(|| cfg.llamacpp_host.clone().filter(|h| !h.trim().is_empty()));
+    if let Some(url) = llamacpp_url {
+        out.push(Arc::new(crate::llm::llamacpp::LlamaCppProvider::new(
+            url,
+            cfg.api_key_for("llamacpp"),
+        )));
+    }
+    out
 }
 
 /// Registry des modèles locaux (GGUF/safetensors).
@@ -222,7 +285,7 @@ pub async fn providers_list(
         let models = p.list_models().await.unwrap_or_default();
         out.push(ProviderInfo {
             id: p.id().to_string(),
-            name: p.id().to_string(),
+            name: p.name().to_string(),
             models,
         });
     }
@@ -310,6 +373,55 @@ pub async fn scan_local_models(
         .map_err(|e| e.to_string())?;
     info!(count, "modèles locaux scannés");
     Ok(model_registry.list_all().await)
+}
+
+// ===== Commandes — Runtimes locaux =====
+
+/// Détecte les moteurs LLM locaux (Ollama, llama.cpp) et **recâble** les
+/// providers en conséquence.
+///
+/// C'est l'action derrière le bouton « Détecter » de l'interface : elle sonde
+/// les adresses candidates, remplace les providers locaux par ceux qui
+/// répondent réellement, resynchronise le pool de repli, puis renvoie le
+/// détail du scan (adresse retenue, origine, modèles, binaires installés).
+#[tauri::command]
+#[instrument(skip(config, registry, pool))]
+pub async fn runtimes_detect(
+    config: State<'_, ConfigState>,
+    registry: State<'_, ProviderRegistryState>,
+    pool: State<'_, ProviderPoolState>,
+) -> Result<RuntimeScan, String> {
+    let cfg = config.read();
+    let mut hosts = Vec::new();
+    if let Some(h) = cfg.ollama_host.as_ref().filter(|h| !h.trim().is_empty()) {
+        hosts.push((RuntimeKind::Ollama, h.clone()));
+    }
+    if let Some(h) = cfg.llamacpp_host.as_ref().filter(|h| !h.trim().is_empty()) {
+        hosts.push((RuntimeKind::LlamaCpp, h.clone()));
+    }
+
+    let scan = discovery::scan(&hosts).await;
+
+    // Recâblage : les providers locaux sont remplacés (pas ajoutés), et celui
+    // qui a disparu du scan est retiré du registry.
+    let locals = local_providers_from_scan(&scan, &cfg);
+    let kept: Vec<String> = locals.iter().map(|p| p.id().to_string()).collect();
+    for provider in locals {
+        registry.register(provider).await;
+    }
+    for id in ["ollama", "llamacpp"] {
+        if !kept.iter().any(|k| k == id) {
+            registry.unregister(id).await;
+        }
+    }
+    pool.replace_all(registry.list_all().await).await;
+
+    info!(
+        joignables = scan.runtimes.iter().filter(|r| r.reachable).count(),
+        providers = kept.len(),
+        "runtimes redétectés et providers recâblés"
+    );
+    Ok(scan)
 }
 
 // ===== Commandes — Config =====

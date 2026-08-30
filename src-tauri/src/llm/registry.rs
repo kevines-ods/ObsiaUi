@@ -121,6 +121,12 @@ impl ProviderRegistry {
         providers.insert(provider.id().to_string(), provider);
     }
 
+    /// Retire un provider (runtime local disparu entre deux détections).
+    pub async fn unregister(&self, id: &str) -> Option<Arc<dyn LlmProvider>> {
+        let mut providers = self.providers.write().await;
+        providers.remove(id)
+    }
+
     pub async fn get(&self, id: &str) -> Option<Arc<dyn LlmProvider>> {
         let providers = self.providers.read().await;
         providers.get(id).cloned()

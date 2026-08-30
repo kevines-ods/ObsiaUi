@@ -19,7 +19,13 @@ import {
 import * as ipc from "../lib/ipc";
 import { loadAgents } from "../lib/agents";
 import type { AgentInfo } from "../types/ipc";
-import type { ConfigPatch, ConfigView, ProviderHealth, ProviderInfo } from "../types/ipc";
+import type {
+  ConfigPatch,
+  ConfigView,
+  ProviderHealth,
+  ProviderInfo,
+  RuntimeScan,
+} from "../types/ipc";
 
 interface AppContextValue {
   config: ConfigView | null;
@@ -35,6 +41,10 @@ interface AppContextValue {
   testProvider: (providerId: string) => Promise<ProviderHealth>;
   health: Record<string, ProviderHealth>;
   testingId: string | null;
+  // Runtimes locaux (Ollama, llama.cpp)
+  runtimeScan: RuntimeScan | null;
+  detectingRuntimes: boolean;
+  detectRuntimes: () => Promise<void>;
   // Agents (IA/agents/*.md)
   agents: AgentInfo[];
   loadingAgents: boolean;
@@ -63,6 +73,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
   const [selectedModel, setSelectedModel] = useState("");
   const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [runtimeScan, setRuntimeScan] = useState<RuntimeScan | null>(null);
+  const [detectingRuntimes, setDetectingRuntimes] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -100,6 +112,22 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     }
   }, [config?.defaultProvider]);
 
+  /**
+   * Détecte les moteurs locaux puis relit la liste des fournisseurs : le
+   * backend a pu recâbler Ollama/llama.cpp sur une autre adresse, la liste
+   * affichée doit refléter le nouveau câblage.
+   */
+  const detectRuntimes = useCallback(async (): Promise<void> => {
+    setDetectingRuntimes(true);
+    try {
+      setRuntimeScan(await ipc.runtimesDetect());
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDetectingRuntimes(false);
+    }
+  }, []);
+
   const refreshAgents = useCallback(async (): Promise<void> => {
     setLoadingAgents(true);
     try {
@@ -126,10 +154,13 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     hydratedRef.current = true;
     void (async () => {
       await refreshConfig();
+      // La détection précède la liste : sans elle, un daemon écoutant sur un
+      // port non conventionnel serait rapporté comme absent au démarrage.
+      await detectRuntimes();
       await refreshProviders();
       await refreshAgents();
     })();
-  }, [refreshConfig, refreshProviders, refreshAgents]);
+  }, [refreshConfig, detectRuntimes, refreshProviders, refreshAgents]);
 
   // Les modèles du provider sélectionné alimentent la sélection par défaut.
   useEffect(() => {
@@ -199,6 +230,10 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       testProvider,
       health,
       testingId,
+      // Runtimes locaux
+      runtimeScan,
+      detectingRuntimes,
+      detectRuntimes,
       // Agents
       agents,
       loadingAgents,
@@ -220,6 +255,10 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       testProvider,
       health,
       testingId,
+      // Runtimes locaux
+      runtimeScan,
+      detectingRuntimes,
+      detectRuntimes,
       // Agents
       agents,
       loadingAgents,

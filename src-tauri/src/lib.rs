@@ -1,8 +1,8 @@
 use crate::commands::{
     agent_read, agents_list, chat_send, chat_stream, config_get, config_set, init_model_registry,
     init_provider_pool, init_provider_registry, init_vault, llm_health_check, models_list,
-    provider_test, providers_list, scan_local_models, vault_list, vault_path, vault_read,
-    vault_write,
+    provider_test, providers_list, runtimes_detect, scan_local_models, vault_list, vault_path,
+    vault_read, vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;
@@ -11,6 +11,7 @@ use tracing::warn;
 mod agents;
 mod commands;
 mod config;
+mod discovery;
 mod llm;
 mod vault;
 
@@ -60,6 +61,8 @@ pub fn run() {
             models_list,
             llm_health_check,
             scan_local_models,
+            // Runtimes locaux
+            runtimes_detect,
             // Config
             config_get,
             config_set,
