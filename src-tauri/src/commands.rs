@@ -9,6 +9,8 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - Distant : `remote_status`, `remote_start`, `remote_stop`,
+//!   `remote_token_read`, `remote_token_rotate`
 //! - Plans : `plans_list`, `plan_save`, `plan_delete`, `plan_draft`,
 //!   `plan_run`, `plan_cancel`
 //! - Sessions : `sessions_list`, `session_create`, `session_get`,
@@ -25,19 +27,25 @@
 use crate::agents::{AgentDoc, AgentInfo};
 use crate::config::{AppConfig, ConfigPatch, ConfigState, ConfigView};
 use crate::discovery::{self, RuntimeKind, RuntimeScan};
+use crate::event::EventBus;
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
-use crate::llm::streaming::StreamingManager;
 use crate::plan::{self, Plan, PlanManager, PlanStatus, PlanStep};
+use crate::remote::{self, Harness, RemoteState};
 use crate::session::{Session, SessionManager, SessionMessage, SessionMeta};
 use crate::team::{self, Team, TeamMember, TeamStore, TeamStrategy};
 use crate::vault::{VaultEntry, VaultState};
+
+/// Coffre et config sont partagés : la fenêtre Tauri et le serveur distant
+/// s'appuient sur les mêmes instances, pas sur deux vues divergentes.
+pub type VaultStateArc = Arc<VaultState>;
+pub type ConfigStateArc = Arc<ConfigState>;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::State;
 use tracing::{error, info, instrument, warn};
 
 // ===== Types du contrat =====
@@ -80,6 +88,7 @@ pub type ProviderRegistryState = Arc<ProviderRegistry>;
 pub type ModelRegistryState = Arc<ModelRegistry>;
 pub type ProviderPoolState = Arc<ProviderPool>;
 pub type SessionManagerState = Arc<SessionManager>;
+pub type EventBusState = Arc<EventBus>;
 
 // ===== Initialisation (appelée depuis setup dans lib.rs) =====
 
@@ -217,9 +226,8 @@ pub fn init_vault(config: &ConfigState) -> Result<VaultState, String> {
 
 /// Chat non-streaming : réponse complète.
 #[tauri::command]
-#[instrument(skip(_app, pool))]
+#[instrument(skip(pool))]
 pub async fn chat_send(
-    _app: AppHandle,
     pool: State<'_, ProviderPoolState>,
     payload: ChatRequestPayload,
 ) -> Result<ChatResponse, String> {
@@ -238,9 +246,9 @@ pub async fn chat_send(
 /// Chat streaming : émet `llm:token` / `llm:done` / `llm:error` puis
 /// retourne `Ok(())` (le contenu transite par les événements).
 #[tauri::command]
-#[instrument(skip(app, pool))]
+#[instrument(skip(bus, pool))]
 pub async fn chat_stream(
-    app: AppHandle,
+    bus: State<'_, EventBusState>,
     pool: State<'_, ProviderPoolState>,
     payload: ChatRequestPayload,
 ) -> Result<(), String> {
@@ -252,15 +260,37 @@ pub async fn chat_stream(
     }
     .map_err(|e| {
         error!(%e, "chat_stream échec d'ouverture");
-        let _ = app.emit("llm:error", e.to_string());
+        bus.emit("llm:error", e.to_string());
         e.to_string()
     })?;
 
-    let manager = StreamingManager::new(app.clone());
-    manager.forward_stream(stream).await.map_err(|e| {
-        error!(%e, "chat_stream échec de forwarding");
-        e.to_string()
-    })?;
+    // Chat sans session : pas d'annulation ciblée, d'où un drapeau inerte.
+    let inerte = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (texte, _, echec) = consommer_flux(stream, &inerte, |token| {
+        bus.emit("llm:token", token);
+    })
+    .await;
+    if let Some(e) = echec {
+        bus.emit("llm:error", e.clone());
+        return Err(e);
+    }
+    bus.emit(
+        "llm:done",
+        ChatResponse {
+            id: uuid::Uuid::new_v4().to_string(),
+            model: payload.model.clone(),
+            choices: vec![crate::llm::provider::ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".into(),
+                    content: texte,
+                    name: None,
+                },
+                finish_reason: Some("stop".into()),
+            }],
+            usage: None,
+        },
+    );
     Ok(())
 }
 
@@ -403,7 +433,7 @@ pub async fn scan_local_models(
 #[tauri::command]
 #[instrument(skip(config, registry, pool))]
 pub async fn runtimes_detect(
-    config: State<'_, ConfigState>,
+    config: State<'_, ConfigStateArc>,
     registry: State<'_, ProviderRegistryState>,
     pool: State<'_, ProviderPoolState>,
 ) -> Result<RuntimeScan, String> {
@@ -445,7 +475,7 @@ pub async fn runtimes_detect(
 /// Retourne la config SANS les valeurs de clés API (présence seulement).
 #[tauri::command]
 #[instrument(skip(config))]
-pub fn config_get(config: State<'_, ConfigState>) -> Result<ConfigView, String> {
+pub fn config_get(config: State<'_, ConfigStateArc>) -> Result<ConfigView, String> {
     Ok(config.read().view())
 }
 
@@ -453,7 +483,7 @@ pub fn config_get(config: State<'_, ConfigState>) -> Result<ConfigView, String> 
 #[tauri::command]
 #[instrument(skip(config))]
 pub fn config_set(
-    config: State<'_, ConfigState>,
+    config: State<'_, ConfigStateArc>,
     patch: ConfigPatch,
 ) -> Result<ConfigView, String> {
     config.update(patch)
@@ -464,14 +494,14 @@ pub fn config_set(
 /// Liste les notes markdown du coffre.
 #[tauri::command]
 #[instrument(skip(vault))]
-pub fn vault_list(vault: State<'_, VaultState>) -> Result<Vec<VaultEntry>, String> {
+pub fn vault_list(vault: State<'_, VaultStateArc>) -> Result<Vec<VaultEntry>, String> {
     vault.list_notes()
 }
 
 /// Lit une note markdown (chemin relatif, extension .md).
 #[tauri::command]
 #[instrument(skip(vault))]
-pub fn vault_read(vault: State<'_, VaultState>, rel_path: String) -> Result<String, String> {
+pub fn vault_read(vault: State<'_, VaultStateArc>, rel_path: String) -> Result<String, String> {
     vault.read_note(&rel_path)
 }
 
@@ -479,7 +509,7 @@ pub fn vault_read(vault: State<'_, VaultState>, rel_path: String) -> Result<Stri
 #[tauri::command]
 #[instrument(skip(vault))]
 pub fn vault_write(
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
     rel_path: String,
     content: String,
 ) -> Result<VaultEntry, String> {
@@ -489,7 +519,7 @@ pub fn vault_write(
 /// Chemin absolu de la racine du coffre (pour l'UI).
 #[tauri::command]
 #[instrument(skip(vault))]
-pub fn vault_path(vault: State<'_, VaultState>) -> Result<String, String> {
+pub fn vault_path(vault: State<'_, VaultStateArc>) -> Result<String, String> {
     Ok(vault.root().display().to_string())
 }
 
@@ -745,7 +775,7 @@ mod tests {
 /// Liste les agents du coffre (frontmatter validé par le backend).
 #[tauri::command]
 #[instrument(skip(vault))]
-pub fn agents_list(vault: State<'_, VaultState>) -> Result<Vec<AgentInfo>, String> {
+pub fn agents_list(vault: State<'_, VaultStateArc>) -> Result<Vec<AgentInfo>, String> {
     vault.agents_list()
 }
 
@@ -753,7 +783,7 @@ pub fn agents_list(vault: State<'_, VaultState>) -> Result<Vec<AgentInfo>, Strin
 /// ou simple nom `x.md`. Confiné à `IA/agents/` (sandbox + validation).
 #[tauri::command]
 #[instrument(skip(vault))]
-pub fn agent_read(vault: State<'_, VaultState>, path: String) -> Result<AgentDoc, String> {
+pub fn agent_read(vault: State<'_, VaultStateArc>, path: String) -> Result<AgentDoc, String> {
     vault.agent_read(&path)
 }
 
@@ -955,12 +985,36 @@ async fn consommer_flux<F: Fn(String)>(
 /// Le prompt système est relu **dans le coffre à chaque tour** : modifier un
 /// agent doit prendre effet immédiatement, sans rouvrir la session.
 #[tauri::command]
-#[instrument(skip(app, sessions, pool, vault))]
+#[instrument(skip(bus, sessions, pool, vault))]
 pub async fn session_send(
-    app: AppHandle,
+    bus: State<'_, EventBusState>,
     sessions: State<'_, SessionManagerState>,
     pool: State<'_, ProviderPoolState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
+    session_id: String,
+    content: String,
+) -> Result<(), String> {
+    session_send_impl(
+        bus.inner(),
+        sessions.inner(),
+        pool.inner(),
+        vault.inner(),
+        session_id,
+        content,
+    )
+    .await
+}
+
+/// Corps de [`session_send`], indépendant de Tauri.
+///
+/// Le serveur distant appelle exactement cette fonction : un client attaché à
+/// distance exécute le même code que la fenêtre locale, sans chemin parallèle
+/// à maintenir en double.
+pub async fn session_send_impl(
+    bus: &EventBus,
+    sessions: &SessionManager,
+    pool: &ProviderPool,
+    vault: &VaultState,
     session_id: String,
     content: String,
 ) -> Result<(), String> {
@@ -1007,7 +1061,7 @@ pub async fn session_send(
         Ok(s) => s,
         Err(e) => {
             sessions.finish(&session_id).await;
-            let _ = app.emit(
+            bus.emit(
                 "session:error",
                 SessionErrorEvent {
                     session_id: session_id.clone(),
@@ -1020,7 +1074,7 @@ pub async fn session_send(
     };
 
     let (texte, cancelled, echec) = consommer_flux(stream, &annule, |token| {
-        let _ = app.emit(
+        bus.emit(
             "session:token",
             SessionTokenEvent {
                 session_id: session_id.clone(),
@@ -1032,7 +1086,7 @@ pub async fn session_send(
     sessions.finish(&session_id).await;
 
     if let Some(e) = echec {
-        let _ = app.emit(
+        bus.emit(
             "session:error",
             SessionErrorEvent {
                 session_id: session_id.clone(),
@@ -1045,7 +1099,7 @@ pub async fn session_send(
     // Un tour annulé sans le moindre jeton n'a rien à conserver.
     if texte.is_empty() && cancelled {
         let meta = sessions.get(&session_id)?.meta;
-        let _ = app.emit(
+        bus.emit(
             "session:done",
             SessionDoneEvent {
                 session_id: session_id.clone(),
@@ -1059,7 +1113,7 @@ pub async fn session_send(
 
     let message = SessionMessage::new("assistant", texte).with_agent(session.meta.agent.clone());
     let meta = sessions.push_message(&session_id, message.clone()).await?;
-    let _ = app.emit(
+    bus.emit(
         "session:done",
         SessionDoneEvent {
             session_id,
@@ -1080,7 +1134,7 @@ pub async fn session_send(
 #[instrument(skip(sessions, vault))]
 pub fn session_export(
     sessions: State<'_, SessionManagerState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
     session_id: String,
     project: String,
 ) -> Result<VaultEntry, String> {
@@ -1139,7 +1193,7 @@ pub fn teams_list(teams: State<'_, TeamStoreState>) -> Result<Vec<Team>, String>
 #[instrument(skip(teams, vault))]
 pub fn team_save(
     teams: State<'_, TeamStoreState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
     payload: TeamSavePayload,
 ) -> Result<Team, String> {
     let mut team = match &payload.id {
@@ -1199,13 +1253,35 @@ pub fn team_delete(teams: State<'_, TeamStoreState>, team_id: String) -> Result<
 /// session. L'exécution s'arrête au premier des trois : marqueur de fin,
 /// budget de tours épuisé, ou annulation.
 #[tauri::command]
-#[instrument(skip(app, sessions, teams, pool, vault))]
+#[instrument(skip(bus, sessions, teams, pool, vault))]
 pub async fn team_run(
-    app: AppHandle,
+    bus: State<'_, EventBusState>,
     sessions: State<'_, SessionManagerState>,
     teams: State<'_, TeamStoreState>,
     pool: State<'_, ProviderPoolState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
+    session_id: String,
+    objective: String,
+) -> Result<(), String> {
+    team_run_impl(
+        bus.inner(),
+        sessions.inner(),
+        teams.inner(),
+        pool.inner(),
+        vault.inner(),
+        session_id,
+        objective,
+    )
+    .await
+}
+
+/// Corps de [`team_run`], indépendant de Tauri.
+pub async fn team_run_impl(
+    bus: &EventBus,
+    sessions: &SessionManager,
+    teams: &TeamStore,
+    pool: &ProviderPool,
+    vault: &VaultState,
     session_id: String,
     objective: String,
 ) -> Result<(), String> {
@@ -1236,7 +1312,7 @@ pub async fn team_run(
             cancelled = true;
             break;
         }
-        let _ = app.emit(
+        bus.emit(
             "session:turn",
             SessionTurnEvent {
                 session_id: session_id.clone(),
@@ -1275,7 +1351,7 @@ pub async fn team_run(
             Ok(s) => s,
             Err(e) => {
                 sessions.finish(&session_id).await;
-                let _ = app.emit(
+                bus.emit(
                     "session:error",
                     SessionErrorEvent {
                         session_id: session_id.clone(),
@@ -1287,7 +1363,7 @@ pub async fn team_run(
         };
 
         let (texte, stoppe, echec) = consommer_flux(stream, &annule, |token| {
-            let _ = app.emit(
+            bus.emit(
                 "session:token",
                 SessionTokenEvent {
                     session_id: session_id.clone(),
@@ -1298,7 +1374,7 @@ pub async fn team_run(
         .await;
         if let Some(e) = echec {
             sessions.finish(&session_id).await;
-            let _ = app.emit(
+            bus.emit(
                 "session:error",
                 SessionErrorEvent {
                     session_id: session_id.clone(),
@@ -1311,7 +1387,7 @@ pub async fn team_run(
             let message = SessionMessage::new("assistant", texte.clone())
                 .with_agent(Some(membre.agent.clone()));
             let meta = sessions.push_message(&session_id, message.clone()).await?;
-            let _ = app.emit(
+            bus.emit(
                 "session:message",
                 SessionMessageEvent {
                     session_id: session_id.clone(),
@@ -1342,7 +1418,7 @@ pub async fn team_run(
         .last()
         .cloned()
         .unwrap_or_else(|| SessionMessage::new("assistant", String::new()));
-    let _ = app.emit(
+    bus.emit(
         "session:done",
         SessionDoneEvent {
             session_id,
@@ -1460,7 +1536,7 @@ pub async fn plan_cancel(
 #[instrument(skip(pool, vault))]
 pub async fn plan_draft(
     pool: State<'_, ProviderPoolState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
     payload: PlanDraftPayload,
 ) -> Result<Plan, String> {
     let objectif = payload.objective.trim().to_string();
@@ -1522,12 +1598,30 @@ pub async fn plan_draft(
 /// Les étapes déjà abouties ne sont pas refaites : relancer un plan interrompu
 /// reprend là où il s'était arrêté.
 #[tauri::command]
-#[instrument(skip(app, plans, pool, vault))]
+#[instrument(skip(bus, plans, pool, vault))]
 pub async fn plan_run(
-    app: AppHandle,
+    bus: State<'_, EventBusState>,
     plans: State<'_, PlanManagerState>,
     pool: State<'_, ProviderPoolState>,
-    vault: State<'_, VaultState>,
+    vault: State<'_, VaultStateArc>,
+    plan_id: String,
+) -> Result<Plan, String> {
+    plan_run_impl(
+        bus.inner(),
+        plans.inner(),
+        pool.inner(),
+        vault.inner(),
+        plan_id,
+    )
+    .await
+}
+
+/// Corps de [`plan_run`], indépendant de Tauri.
+pub async fn plan_run_impl(
+    bus: &EventBus,
+    plans: &PlanManager,
+    pool: &ProviderPool,
+    vault: &VaultState,
     plan_id: String,
 ) -> Result<Plan, String> {
     let mut plan = plans.load(&plan_id)?;
@@ -1557,17 +1651,14 @@ pub async fn plan_run(
             plan.mark_running(&etape.id);
         }
         plans.save(&plan).await?;
-        let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+        bus.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
 
         let taches = vague.into_iter().map(|(etape, contexte)| {
-            let app = &app;
-            let pool = &pool;
-            let vault = &vault;
             let annule = &annule;
             let plan_id = plan_id.clone();
             async move {
                 let resultat =
-                    executer_etape(app, pool, vault, &plan_id, &etape, &contexte, annule).await;
+                    executer_etape(bus, pool, vault, &plan_id, &etape, &contexte, annule).await;
                 (etape.id.clone(), resultat)
             }
         });
@@ -1587,7 +1678,7 @@ pub async fn plan_run(
         }
         plan.refresh_status();
         plans.save(&plan).await?;
-        let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+        bus.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
 
         if interrompu {
             break;
@@ -1602,7 +1693,7 @@ pub async fn plan_run(
     }
     plans.save(&plan).await?;
     plans.finish(&plan_id).await;
-    let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+    bus.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
     let (faites, total) = plan.progress();
     info!(plan = %plan.title, faites, total, "exécution du plan terminée");
     Ok(plan)
@@ -1610,8 +1701,8 @@ pub async fn plan_run(
 
 /// Exécute une étape. `Ok(None)` signale une interruption avant aboutissement.
 async fn executer_etape(
-    app: &AppHandle,
-    pool: &ProviderPoolState,
+    bus: &EventBus,
+    pool: &ProviderPool,
     vault: &VaultState,
     plan_id: &str,
     etape: &PlanStep,
@@ -1652,7 +1743,7 @@ async fn executer_etape(
     .map_err(|e| e.to_string())?;
 
     let (texte, stoppe, echec) = consommer_flux(stream, annule, |token| {
-        let _ = app.emit(
+        bus.emit(
             "plan:token",
             PlanTokenEvent {
                 plan_id: plan_id.to_string(),
@@ -1673,4 +1764,185 @@ async fn executer_etape(
         return Err("l'étape n'a produit aucun résultat".into());
     }
     Ok(Some(texte))
+}
+
+// ===== Commandes — Serveur distant =====
+
+pub type RemoteStateArc = Arc<RemoteState>;
+
+/// État du daemon, tel que l'interface l'affiche.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteStatus {
+    pub running: bool,
+    /// Adresse réellement écoutée, quand le serveur tourne.
+    pub address: Option<String>,
+    /// Adresse configurée pour le prochain démarrage.
+    pub bind: String,
+    /// Démarrage automatique au lancement.
+    pub enabled: bool,
+    pub token_configured: bool,
+    /// Faux quand le serveur est joignable depuis le réseau.
+    pub loopback_only: bool,
+}
+
+/// Assemble le harness partagé entre la fenêtre et le serveur distant.
+#[allow(clippy::too_many_arguments)]
+fn harness(
+    bus: &EventBusState,
+    sessions: &SessionManagerState,
+    teams: &TeamStoreState,
+    plans: &PlanManagerState,
+    pool: &ProviderPoolState,
+    registry: &ProviderRegistryState,
+    vault: &VaultStateArc,
+) -> Harness {
+    Harness {
+        bus: bus.clone(),
+        sessions: sessions.clone(),
+        teams: teams.clone(),
+        plans: plans.clone(),
+        pool: pool.clone(),
+        registry: registry.clone(),
+        vault: vault.clone(),
+    }
+}
+
+fn bind_configure(cfg: &crate::config::AppConfig) -> String {
+    cfg.remote_bind
+        .clone()
+        .filter(|b| !b.trim().is_empty())
+        .unwrap_or_else(|| format!("127.0.0.1:{}", remote::PORT_DEFAUT))
+}
+
+#[tauri::command]
+#[instrument(skip(config, remote_state))]
+pub async fn remote_status(
+    config: State<'_, ConfigStateArc>,
+    remote_state: State<'_, RemoteStateArc>,
+) -> Result<RemoteStatus, String> {
+    let cfg = config.read();
+    let addr = remote_state.adresse().await;
+    Ok(RemoteStatus {
+        running: addr.is_some(),
+        address: addr.map(|a| a.to_string()),
+        bind: bind_configure(&cfg),
+        enabled: cfg.remote_enabled,
+        token_configured: cfg.remote_token().is_some(),
+        loopback_only: addr.map(|a| remote::est_boucle(&a)).unwrap_or(true),
+    })
+}
+
+/// Démarre le serveur distant.
+///
+/// Un jeton est engendré à la volée s'il n'en existe pas : il n'y a pas de
+/// mode « sans authentification », même en écoute locale.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+#[instrument(skip(
+    config,
+    remote_state,
+    bus,
+    sessions,
+    teams,
+    plans,
+    pool,
+    registry,
+    vault
+))]
+pub async fn remote_start(
+    config: State<'_, ConfigStateArc>,
+    remote_state: State<'_, RemoteStateArc>,
+    bus: State<'_, EventBusState>,
+    sessions: State<'_, SessionManagerState>,
+    teams: State<'_, TeamStoreState>,
+    plans: State<'_, PlanManagerState>,
+    pool: State<'_, ProviderPoolState>,
+    registry: State<'_, ProviderRegistryState>,
+    vault: State<'_, VaultStateArc>,
+) -> Result<RemoteStatus, String> {
+    let cfg = config.read();
+    let jeton = match cfg.remote_token() {
+        Some(j) => j,
+        None => {
+            let j = remote::generer_jeton();
+            config.set_remote_token(j.clone())?;
+            info!("jeton distant engendré");
+            j
+        }
+    };
+    let bind = bind_configure(&cfg);
+    let h = harness(&bus, &sessions, &teams, &plans, &pool, &registry, &vault);
+    remote_state.demarrer(h, &bind, &jeton).await?;
+    config.update(crate::config::ConfigPatch {
+        remote_enabled: Some(true),
+        ..Default::default()
+    })?;
+    remote_status(config, remote_state).await
+}
+
+#[tauri::command]
+#[instrument(skip(config, remote_state))]
+pub async fn remote_stop(
+    config: State<'_, ConfigStateArc>,
+    remote_state: State<'_, RemoteStateArc>,
+) -> Result<RemoteStatus, String> {
+    remote_state.arreter().await;
+    config.update(crate::config::ConfigPatch {
+        remote_enabled: Some(false),
+        ..Default::default()
+    })?;
+    remote_status(config, remote_state).await
+}
+
+/// Révèle le jeton, pour que l'utilisateur le recopie sur le poste client.
+///
+/// Commande **locale uniquement** : elle n'est pas dans la liste blanche du
+/// serveur, un client déjà connecté ne peut donc pas relire le secret.
+#[tauri::command]
+#[instrument(skip(config))]
+pub fn remote_token_read(config: State<'_, ConfigStateArc>) -> Result<String, String> {
+    config
+        .read()
+        .remote_token()
+        .ok_or_else(|| "aucun jeton engendré — démarrez le serveur une fois".to_string())
+}
+
+/// Engendre un nouveau jeton et invalide l'ancien.
+///
+/// Le serveur est redémarré s'il tournait : sans cela l'ancien jeton
+/// resterait valide jusqu'au prochain lancement de l'application.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+#[instrument(skip(
+    config,
+    remote_state,
+    bus,
+    sessions,
+    teams,
+    plans,
+    pool,
+    registry,
+    vault
+))]
+pub async fn remote_token_rotate(
+    config: State<'_, ConfigStateArc>,
+    remote_state: State<'_, RemoteStateArc>,
+    bus: State<'_, EventBusState>,
+    sessions: State<'_, SessionManagerState>,
+    teams: State<'_, TeamStoreState>,
+    plans: State<'_, PlanManagerState>,
+    pool: State<'_, ProviderPoolState>,
+    registry: State<'_, ProviderRegistryState>,
+    vault: State<'_, VaultStateArc>,
+) -> Result<String, String> {
+    let jeton = remote::generer_jeton();
+    config.set_remote_token(jeton.clone())?;
+    if remote_state.adresse().await.is_some() {
+        let bind = bind_configure(&config.read());
+        let h = harness(&bus, &sessions, &teams, &plans, &pool, &registry, &vault);
+        remote_state.demarrer(h, &bind, &jeton).await?;
+    }
+    info!("jeton distant renouvelé");
+    Ok(jeton)
 }

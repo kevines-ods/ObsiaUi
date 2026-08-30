@@ -44,6 +44,15 @@ pub struct AppConfig {
     /// Host llama.cpp personnalisé (ex: http://localhost:8080).
     #[serde(default)]
     pub llamacpp_host: Option<String>,
+    /// Serveur distant : démarré automatiquement au lancement.
+    #[serde(default)]
+    pub remote_enabled: bool,
+    /// Adresse d'écoute du serveur distant (défaut : boucle locale).
+    #[serde(default)]
+    pub remote_bind: Option<String>,
+    /// Jeton d'accès distant. Secret : jamais exposé dans `ConfigView`.
+    #[serde(default)]
+    pub remote_token: Option<String>,
 }
 
 /// Vue exposée au frontend : jamais les valeurs de clés, seulement leur
@@ -56,6 +65,12 @@ pub struct ConfigView {
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
     pub llamacpp_host: Option<String>,
+    pub remote_enabled: bool,
+    pub remote_bind: Option<String>,
+    /// Présence du jeton seulement — sa valeur se lit par `remote_token_read`,
+    /// commande locale dédiée, pour qu'il ne transite pas dans chaque
+    /// rafraîchissement de configuration.
+    pub remote_token_configured: bool,
 }
 
 /// Patch de mise à jour de la config (champs optionnels = non modifiés).
@@ -67,6 +82,8 @@ pub struct ConfigPatch {
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
     pub llamacpp_host: Option<String>,
+    pub remote_enabled: Option<bool>,
+    pub remote_bind: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -135,7 +152,18 @@ impl AppConfig {
             default_provider: self.default_provider.clone(),
             ollama_host: self.ollama_host.clone(),
             llamacpp_host: self.llamacpp_host.clone(),
+            remote_enabled: self.remote_enabled,
+            remote_bind: self.remote_bind.clone(),
+            remote_token_configured: self
+                .remote_token
+                .as_ref()
+                .is_some_and(|t| !t.trim().is_empty()),
         }
+    }
+
+    /// Jeton distant courant, ou `None` s'il n'a jamais été engendré.
+    pub fn remote_token(&self) -> Option<String> {
+        self.remote_token.clone().filter(|t| !t.trim().is_empty())
     }
 
     pub fn apply_patch(&mut self, patch: ConfigPatch) {
@@ -163,6 +191,19 @@ impl AppConfig {
         if let Some(p) = patch.llamacpp_host {
             self.llamacpp_host = if p.trim().is_empty() { None } else { Some(p) };
         }
+        if let Some(v) = patch.remote_enabled {
+            self.remote_enabled = v;
+        }
+        if let Some(p) = patch.remote_bind {
+            self.remote_bind = if p.trim().is_empty() { None } else { Some(p) };
+        }
+    }
+
+    /// Fixe le jeton distant. Passe par une méthode dédiée plutôt que par le
+    /// patch de configuration : un secret ne doit pas voyager dans le même
+    /// message que des préférences d'affichage.
+    pub fn set_remote_token(&mut self, jeton: String) {
+        self.remote_token = Some(jeton);
     }
 }
 
@@ -183,6 +224,18 @@ impl ConfigState {
 
     pub fn read(&self) -> AppConfig {
         self.inner.read().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// Fixe et persiste le jeton distant.
+    pub fn set_remote_token(&self, jeton: String) -> Result<(), String> {
+        let mut guard = self
+            .inner
+            .write()
+            .map_err(|_| "verrou config poisonné".to_string())?;
+        guard.set_remote_token(jeton);
+        let snapshot = guard.clone();
+        drop(guard);
+        snapshot.save(&self.path)
     }
 
     pub fn update(&self, patch: ConfigPatch) -> Result<ConfigView, String> {
@@ -268,12 +321,18 @@ mod tests {
         let mut cfg = AppConfig::default();
         cfg.api_keys
             .insert("openai".into(), "sk-super-secret".into());
+        cfg.set_remote_token("jeton-distant-tres-secret".into());
         let view = cfg.view();
         assert!(view.api_keys_configured.contains(&"openai".to_string()));
+        assert!(view.remote_token_configured);
         let json = serde_json::to_string(&view).unwrap();
         assert!(
             !json.contains("sk-super-secret"),
-            "les secrets ne doivent pas sortir"
+            "les clés d'API ne doivent pas sortir"
+        );
+        assert!(
+            !json.contains("jeton-distant-tres-secret"),
+            "le jeton distant ne doit pas sortir de la vue de configuration"
         );
     }
 }

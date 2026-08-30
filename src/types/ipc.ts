@@ -106,6 +106,8 @@ export interface ConfigPatch {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  remoteEnabled?: boolean | null;
+  remoteBind?: string | null;
 }
 
 export interface ConfigView {
@@ -114,6 +116,10 @@ export interface ConfigView {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  remoteEnabled: boolean;
+  remoteBind?: string | null;
+  /** Présence du jeton seulement ; sa valeur se lit par `remoteTokenRead`. */
+  remoteTokenConfigured: boolean;
 }
 
 // ===== Runtimes locaux (discovery.rs) =====
@@ -318,6 +324,21 @@ export interface PlanTokenEvent {
 
 export interface PlanUpdateEvent {
   plan: Plan;
+}
+
+// ===== Serveur distant (remote.rs = camelCase) =====
+
+export interface RemoteStatus {
+  running: boolean;
+  /** Adresse réellement écoutée, quand le serveur tourne. */
+  address?: string | null;
+  /** Adresse configurée pour le prochain démarrage. */
+  bind: string;
+  /** Démarrage automatique au lancement. */
+  enabled: boolean;
+  tokenConfigured: boolean;
+  /** Faux quand le serveur est joignable depuis le réseau. */
+  loopbackOnly: boolean;
 }
 
 // ===== Coffre (vault.rs = camelCase) =====

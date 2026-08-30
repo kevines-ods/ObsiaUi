@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 
 import { useApp } from "../context/AppContext";
 import PlansPanel from "./PlansPanel";
+import RemotePanel from "./RemotePanel";
 import TeamsPanel from "./TeamsPanel";
 import * as ipc from "../lib/ipc";
 import type { ConfigView, ModelInfo } from "../types/ipc";
@@ -113,6 +114,8 @@ export default function ControlPanel(): React.JSX.Element {
       <TeamsPanel />
 
       <PlansPanel />
+
+      <RemotePanel />
 
       {loadError && <p className="err-text">{loadError}</p>}
 
