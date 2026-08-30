@@ -1,9 +1,10 @@
 use crate::commands::{
     agent_read, agents_list, chat_send, chat_stream, config_get, config_set, init_model_registry,
-    init_provider_pool, init_provider_registry, init_session_manager, init_vault, llm_health_check,
-    models_list, provider_test, providers_list, runtimes_detect, scan_local_models, session_cancel,
-    session_create, session_delete, session_export, session_get, session_rename, session_send,
-    sessions_list, vault_list, vault_path, vault_read, vault_write,
+    init_provider_pool, init_provider_registry, init_session_manager, init_team_store, init_vault,
+    llm_health_check, models_list, provider_test, providers_list, runtimes_detect,
+    scan_local_models, session_cancel, session_create, session_delete, session_export, session_get,
+    session_rename, session_send, sessions_list, team_delete, team_run, team_save, teams_list,
+    vault_list, vault_path, vault_read, vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;
@@ -15,6 +16,8 @@ mod config;
 mod discovery;
 mod llm;
 mod session;
+mod store;
+mod team;
 mod vault;
 
 pub fn run() {
@@ -54,6 +57,9 @@ pub fn run() {
             // Sessions : état hors coffre (app_data_dir), un fichier par session
             app.manage(init_session_manager(app));
 
+            // Équipes : notion du harness, assemblées depuis les agents du coffre
+            app.manage(init_team_store(app));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +83,11 @@ pub fn run() {
             session_send,
             session_cancel,
             session_export,
+            // Équipes
+            teams_list,
+            team_save,
+            team_delete,
+            team_run,
             // Config
             config_get,
             config_set,

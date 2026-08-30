@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { useApp } from "../context/AppContext";
+import TeamsPanel from "./TeamsPanel";
 import * as ipc from "../lib/ipc";
 import type { ConfigView, ModelInfo } from "../types/ipc";
 
@@ -107,6 +108,8 @@ export default function ControlPanel(): React.JSX.Element {
   return (
     <div className="control-panel">
       <h2 className="panel-title">Configuration</h2>
+
+      <TeamsPanel />
 
       {loadError && <p className="err-text">{loadError}</p>}
 

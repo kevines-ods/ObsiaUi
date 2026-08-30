@@ -18,13 +18,14 @@
 //! patch revu (cf. `VAULT-CONTRACT.md` §2).
 
 use crate::llm::provider::ChatMessage;
+use crate::store::JsonStore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{info, warn};
+use tracing::info;
 
 /// Titre donné à une session tant qu'aucun message ne permet d'en déduire un.
 pub const TITRE_PAR_DEFAUT: &str = "Nouvelle session";
@@ -74,6 +75,10 @@ pub struct SessionMeta {
     pub title: String,
     /// Agent du coffre pilotant la session (`IA/agents/<nom>.md`).
     pub agent: Option<String>,
+    /// Équipe pilotant la session, exclusive de `agent` : une session est
+    /// menée soit par un agent seul, soit par une équipe.
+    #[serde(default)]
+    pub team: Option<String>,
     /// Fournisseur ciblé. `None` = repli automatique sur le pool.
     pub provider: Option<String>,
     pub model: String,
@@ -100,6 +105,7 @@ impl Session {
                 id: uuid::Uuid::new_v4().to_string(),
                 title: TITRE_PAR_DEFAUT.to_string(),
                 agent,
+                team: None,
                 provider,
                 model,
                 created_at: at,
@@ -108,6 +114,12 @@ impl Session {
             },
             messages: Vec::new(),
         }
+    }
+
+    /// Rattache la session à une équipe.
+    pub fn with_team(mut self, team: Option<String>) -> Self {
+        self.meta.team = team;
+        self
     }
 
     /// Ajoute un message, met à jour les compteurs et, si le titre est encore
@@ -185,106 +197,51 @@ fn now() -> u64 {
 
 // ===== Stockage =====
 
-/// Stockage sur disque : un fichier JSON par session.
+/// Stockage des sessions : un fichier JSON par session.
+///
+/// Fine couche au-dessus de [`JsonStore`], qui porte l'écriture atomique, la
+/// validation des identifiants et la tolérance aux fichiers corrompus.
 pub struct SessionStore {
-    dir: PathBuf,
+    inner: JsonStore,
 }
 
 impl SessionStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            inner: JsonStore::new(dir),
+        }
     }
 
     pub fn dir(&self) -> &Path {
-        &self.dir
+        self.inner.dir()
     }
 
-    /// Chemin du fichier d'une session.
-    ///
-    /// L'identifiant est validé même s'il est engendré en interne : il
-    /// transite par l'IPC, donc par du code que l'on ne contrôle pas. Sans
-    /// cette barrière, un `id` valant `../../.ssh/config` sortirait du
-    /// dossier de stockage.
-    fn path_for(&self, id: &str) -> Result<PathBuf, String> {
-        if !est_id_valide(id) {
-            return Err(format!("identifiant de session invalide : {id}"));
-        }
-        Ok(self.dir.join(format!("{id}.json")))
-    }
-
-    /// Écrit la session de façon atomique : fichier temporaire puis `rename`.
-    /// Un `rename` sur le même système de fichiers est atomique — le lecteur
-    /// voit l'ancienne version ou la nouvelle, jamais un JSON à moitié écrit.
     pub fn save(&self, session: &Session) -> Result<(), String> {
-        let path = self.path_for(&session.meta.id)?;
-        std::fs::create_dir_all(&self.dir)
-            .map_err(|e| format!("création de {} impossible: {e}", self.dir.display()))?;
-        let raw = serde_json::to_string_pretty(session)
-            .map_err(|e| format!("sérialisation de la session: {e}"))?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, raw).map_err(|e| format!("écriture de {}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &path).map_err(|e| {
-            // Le temporaire ne doit pas rester derrière un échec de rename.
-            let _ = std::fs::remove_file(&tmp);
-            format!("remplacement de {}: {e}", path.display())
-        })?;
-        Ok(())
+        self.inner.save(&session.meta.id, session)
     }
 
     pub fn load(&self, id: &str) -> Result<Session, String> {
-        let path = self.path_for(id)?;
-        let raw =
-            std::fs::read_to_string(&path).map_err(|e| format!("session {id} illisible: {e}"))?;
-        serde_json::from_str(&raw).map_err(|e| format!("session {id} corrompue: {e}"))
+        self.inner.load(id)
     }
 
     pub fn delete(&self, id: &str) -> Result<(), String> {
-        let path = self.path_for(id)?;
-        match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            // Supprimer deux fois n'est pas une erreur pour l'appelant.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(format!("suppression de {}: {e}", path.display())),
-        }
+        self.inner.delete(id)
     }
 
     /// Métadonnées de toutes les sessions, la plus récemment modifiée en tête.
-    ///
-    /// Un fichier illisible ou corrompu est ignoré avec un avertissement :
-    /// une session cassée ne doit pas rendre la liste entière inutilisable.
     pub fn list(&self) -> Vec<SessionMeta> {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
-            return Vec::new();
-        };
-        let mut metas: Vec<SessionMeta> = entries
-            .flatten()
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
-            .filter_map(|e| match std::fs::read_to_string(e.path()) {
-                Ok(raw) => match serde_json::from_str::<Session>(&raw) {
-                    Ok(s) => Some(s.meta),
-                    Err(err) => {
-                        warn!(fichier = %e.path().display(), %err, "session illisible, ignorée");
-                        None
-                    }
-                },
-                Err(err) => {
-                    warn!(fichier = %e.path().display(), %err, "session illisible, ignorée");
-                    None
-                }
-            })
+        let mut metas: Vec<SessionMeta> = self
+            .inner
+            .load_all::<Session>()
+            .into_iter()
+            .map(|s| s.meta)
             .collect();
+        // À égalité d'horodatage (créations rapprochées), l'identifiant
+        // départage : sans cela l'ordre des onglets sauterait d'un rendu à
+        // l'autre, l'ordre de lecture du dossier n'étant pas garanti.
         metas.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.id.cmp(&b.id)));
         metas
     }
-}
-
-/// Un identifiant de session est un UUID : minuscules, chiffres et tirets.
-pub fn est_id_valide(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 // ===== Gestionnaire =====
@@ -323,10 +280,11 @@ impl SessionManager {
     pub async fn create(
         &self,
         agent: Option<String>,
+        team: Option<String>,
         provider: Option<String>,
         model: String,
     ) -> Result<SessionMeta, String> {
-        let session = Session::new(agent, provider, model);
+        let session = Session::new(agent, provider, model).with_team(team);
         let _guard = self.ecriture.lock().await;
         self.store.save(&session)?;
         info!(id = %session.meta.id, "session créée");
@@ -653,7 +611,9 @@ mod tests {
                 "l'identifiant {mauvais:?} aurait dû être refusé"
             );
         }
-        assert!(est_id_valide("3f2a1b8c-0000-4000-8000-000000000000"));
+        assert!(crate::store::est_id_valide(
+            "3f2a1b8c-0000-4000-8000-000000000000"
+        ));
     }
 
     #[test]
@@ -704,7 +664,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = SessionManager::new(dir.path());
         let meta = m
-            .create(Some("assistant".into()), None, "qwen3:8b".into())
+            .create(Some("assistant".into()), None, None, "qwen3:8b".into())
             .await
             .unwrap();
         assert_eq!(m.list().len(), 1);
@@ -715,8 +675,8 @@ mod tests {
     async fn les_sessions_sont_independantes() {
         let dir = tempfile::tempdir().unwrap();
         let m = SessionManager::new(dir.path());
-        let a = m.create(None, None, "m1".into()).await.unwrap();
-        let b = m.create(None, None, "m2".into()).await.unwrap();
+        let a = m.create(None, None, None, "m1".into()).await.unwrap();
+        let b = m.create(None, None, None, "m2".into()).await.unwrap();
         m.push_message(&a.id, SessionMessage::new("user", "dans a"))
             .await
             .unwrap();
@@ -728,7 +688,7 @@ mod tests {
     async fn renommer_refuse_un_titre_vide() {
         let dir = tempfile::tempdir().unwrap();
         let m = SessionManager::new(dir.path());
-        let s = m.create(None, None, "m".into()).await.unwrap();
+        let s = m.create(None, None, None, "m".into()).await.unwrap();
         assert!(m.rename(&s.id, "  ").await.is_err());
         assert_eq!(m.rename(&s.id, " Revue ").await.unwrap().title, "Revue");
     }

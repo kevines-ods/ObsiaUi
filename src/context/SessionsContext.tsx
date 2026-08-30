@@ -26,6 +26,7 @@ import type {
   Session,
   SessionMessage,
   SessionMeta,
+  Team,
   VaultEntry,
 } from "../types/ipc";
 
@@ -40,7 +41,12 @@ interface SessionsContextValue {
   busy: Record<string, boolean>;
   /** Dernière erreur, par session. */
   errors: Record<string, string | null>;
+  /** Membre ayant la parole, par session d'équipe. */
+  speaking: Record<string, string | null>;
+  teams: Team[];
+  refreshTeams: () => Promise<void>;
   createSession: () => Promise<void>;
+  createTeamSession: (teamId: string) => Promise<void>;
   selectSession: (id: string) => void;
   renameSession: (id: string, title: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
@@ -71,6 +77,8 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
   const [streaming, setStreaming] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
+  const [speaking, setSpeaking] = useState<Record<string, string | null>>({});
+  const [teams, setTeams] = useState<Team[]>([]);
 
   // L'abonnement aux événements est monté une seule fois : il doit lire la
   // session active au moment où l'événement arrive, pas celle capturée à
@@ -88,6 +96,14 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
     const list = await ipc.sessionsList();
     setSessions(list);
     return list;
+  }, []);
+
+  const refreshTeams = useCallback(async (): Promise<void> => {
+    try {
+      setTeams(await ipc.teamsList());
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, __global: message(e) }));
+    }
   }, []);
 
   const loadSession = useCallback(async (id: string): Promise<void> => {
@@ -110,6 +126,7 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
     void (async () => {
       try {
         const list = await refresh();
+        await refreshTeams();
         if (list.length > 0) setActiveId(list[0].id);
       } catch (e) {
         setErrors((prev) => ({ ...prev, __global: message(e) }));
@@ -117,7 +134,7 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
         setLoading(false);
       }
     })();
-  }, [refresh]);
+  }, [refresh, refreshTeams]);
 
   // Chargement de l'historique quand l'onglet actif change.
   useEffect(() => {
@@ -141,27 +158,51 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
             [sessionId]: (prev[sessionId] ?? "") + token,
           }));
         }),
-        ipc.sessionStream.onDone(({ sessionId, message: msg, meta, cancelled: stopped }) => {
-          setStreaming((prev) => {
-            const copy = { ...prev };
-            delete copy[sessionId];
-            return copy;
-          });
-          setBusy((prev) => ({ ...prev, [sessionId]: false }));
-          // Un tour annulé avant le premier jeton n'a produit aucun message.
-          const vide = stopped && msg.content.length === 0;
+        ipc.sessionStream.onTurn(({ sessionId, agent }) => {
+          // Nouveau membre : on repart d'une bulle vide à son nom.
+          setSpeaking((prev) => ({ ...prev, [sessionId]: agent }));
+          setStreaming((prev) => ({ ...prev, [sessionId]: "" }));
+        }),
+        ipc.sessionStream.onMessage(({ sessionId, message: msg, meta }) => {
+          // Intervention close : elle rejoint le fil, la bulle en cours se vide.
+          setStreaming((prev) => ({ ...prev, [sessionId]: "" }));
           setSessions((prev) =>
             prev
               .map((s) => (s.id === meta.id ? meta : s))
               .sort((a, b) => b.updatedAt - a.updatedAt),
           );
-          if (!vide && activeIdRef.current === sessionId) {
+          if (activeIdRef.current === sessionId) {
             setActive((prev) =>
               prev && prev.id === sessionId
                 ? { ...prev, ...meta, messages: [...prev.messages, msg] }
                 : prev,
             );
           }
+        }),
+        ipc.sessionStream.onDone(({ sessionId, message: msg, meta }) => {
+          setStreaming((prev) => {
+            const copy = { ...prev };
+            delete copy[sessionId];
+            return copy;
+          });
+          setBusy((prev) => ({ ...prev, [sessionId]: false }));
+          setSpeaking((prev) => ({ ...prev, [sessionId]: null }));
+          setSessions((prev) =>
+            prev
+              .map((s) => (s.id === meta.id ? meta : s))
+              .sort((a, b) => b.updatedAt - a.updatedAt),
+          );
+          setActive((prev) => {
+            if (!prev || prev.id !== sessionId) return prev;
+            // Un tour annulé avant le premier jeton n'a produit aucun message ;
+            // une exécution d'équipe a déjà reçu le sien par `session:message`.
+            const deja =
+              msg.content.length === 0 ||
+              prev.messages.some((m) => m.at === msg.at && m.content === msg.content);
+            return deja
+              ? { ...prev, ...meta }
+              : { ...prev, ...meta, messages: [...prev.messages, msg] };
+          });
         }),
         ipc.sessionStream.onError(({ sessionId, error }) => {
           setStreaming((prev) => {
@@ -170,6 +211,7 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
             return copy;
           });
           setBusy((prev) => ({ ...prev, [sessionId]: false }));
+          setSpeaking((prev) => ({ ...prev, [sessionId]: null }));
           setErrors((prev) => ({ ...prev, [sessionId]: error }));
         }),
       ]);
@@ -204,6 +246,28 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       setErrors((prev) => ({ ...prev, __global: message(e) }));
     }
   }, [selectedAgent, selectedProviderId, selectedModel]);
+
+  const createTeamSession = useCallback(
+    async (teamId: string): Promise<void> => {
+      const team = teams.find((t) => t.id === teamId);
+      if (!team) return;
+      try {
+        // Le modèle de la session est celui du premier membre : chaque membre
+        // parlera ensuite avec le sien.
+        const meta = await ipc.sessionCreate({
+          team: teamId,
+          provider: team.members[0]?.provider ?? null,
+          model: team.members[0]?.model ?? "",
+        });
+        setSessions((prev) => [meta, ...prev]);
+        setActiveId(meta.id);
+        setErrors((prev) => ({ ...prev, __global: null }));
+      } catch (e) {
+        setErrors((prev) => ({ ...prev, __global: message(e) }));
+      }
+    },
+    [teams],
+  );
 
   const renameSession = useCallback(async (id: string, title: string): Promise<void> => {
     try {
@@ -254,7 +318,13 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       setStreaming((prev) => ({ ...prev, [id]: "" }));
 
       try {
-        await ipc.sessionSend(id, texte);
+        // Une session d'équipe fait travailler plusieurs agents à la suite ;
+        // le message devient leur objectif commun.
+        if (active?.id === id && active.team) {
+          await ipc.teamRun(id, texte);
+        } else {
+          await ipc.sessionSend(id, texte);
+        }
       } catch (e) {
         // L'événement session:error a déjà pu passer ; on ne l'écrase que si
         // aucune erreur n'a encore été enregistrée.
@@ -262,7 +332,7 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
         setErrors((prev) => ({ ...prev, [id]: prev[id] ?? message(e) }));
       }
     },
-    [activeId, busy],
+    [activeId, busy, active],
   );
 
   const cancel = useCallback(async (id: string): Promise<void> => {
@@ -287,7 +357,11 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       streaming,
       busy,
       errors,
+      speaking,
+      teams,
+      refreshTeams,
       createSession,
+      createTeamSession,
       selectSession,
       renameSession,
       deleteSession,
@@ -303,7 +377,11 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       streaming,
       busy,
       errors,
+      speaking,
+      teams,
+      refreshTeams,
       createSession,
+      createTeamSession,
       selectSession,
       renameSession,
       deleteSession,

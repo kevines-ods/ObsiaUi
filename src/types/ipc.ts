@@ -172,6 +172,8 @@ export interface SessionMeta {
   id: string;
   title: string;
   agent?: string | null;
+  /** Équipe pilotant la session, exclusive de `agent`. */
+  team?: string | null;
   provider?: string | null;
   model: string;
   createdAt: number;
@@ -186,8 +188,45 @@ export interface Session extends SessionMeta {
 
 export interface SessionCreatePayload {
   agent?: string | null;
+  team?: string | null;
   provider?: string | null;
   model: string;
+}
+
+// ===== Équipes (team.rs = camelCase) =====
+
+export interface TeamMember {
+  /** Nom de l'agent du coffre. */
+  agent: string;
+  provider?: string | null;
+  model: string;
+  /** Consigne propre à ce membre dans cette équipe. */
+  role?: string | null;
+}
+
+/** Sérialisé en kebab-case côté Rust. */
+export type TeamStrategy = "round-robin" | "supervisor";
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  members: TeamMember[];
+  strategy: TeamStrategy;
+  /** Garde-fou : nombre maximal de tours de parole par exécution. */
+  maxTurns: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TeamSavePayload {
+  /** Absent = création. */
+  id?: string | null;
+  name: string;
+  description: string;
+  members: TeamMember[];
+  strategy: TeamStrategy;
+  maxTurns: number;
 }
 
 // ===== Événements de session =====
@@ -208,6 +247,20 @@ export interface SessionDoneEvent {
 export interface SessionErrorEvent {
   sessionId: string;
   error: string;
+}
+
+/** Message ajouté au fil pendant une exécution (tours d'équipe). */
+export interface SessionMessageEvent {
+  sessionId: string;
+  message: SessionMessage;
+  meta: SessionMeta;
+}
+
+/** Changement d'orateur dans une session d'équipe. */
+export interface SessionTurnEvent {
+  sessionId: string;
+  agent: string;
+  turn: number;
 }
 
 // ===== Coffre (vault.rs = camelCase) =====

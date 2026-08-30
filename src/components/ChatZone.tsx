@@ -21,6 +21,8 @@ export default function ChatZone(): React.JSX.Element {
     streaming,
     busy,
     errors,
+    speaking,
+    teams,
     loading,
     createSession,
     send,
@@ -36,6 +38,9 @@ export default function ChatZone(): React.JSX.Element {
   const partiel = activeId ? streaming[activeId] : undefined;
   const erreur = activeId ? errors[activeId] : errors.__global;
   const agent = agents.find((a) => a.name === active?.agent);
+  const equipe = teams.find((t) => t.id === active?.team);
+  // En session d'équipe, l'orateur change en cours d'exécution.
+  const orateur = activeId ? speaking[activeId] : null;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -99,9 +104,13 @@ export default function ChatZone(): React.JSX.Element {
       {active && (
         <div className="chat-agent-bar">
           <span className="chat-agent-name">
-            {active.agent ? `🤖 ${active.agent}` : "Sans agent"}
+            {equipe ? `👥 ${equipe.name}` : active.agent ? `🤖 ${active.agent}` : "Sans agent"}
           </span>
-          <span className="chat-model">{active.model}</span>
+          {orateur ? (
+            <span className="chat-speaker">au tour de {orateur}</span>
+          ) : (
+            <span className="chat-model">{equipe ? `${equipe.members.length} membres` : active.model}</span>
+          )}
           {agent?.readOnly && <span className="badge badge-err">lecture seule</span>}
           <button
             type="button"
@@ -125,7 +134,7 @@ export default function ChatZone(): React.JSX.Element {
 
         {partiel !== undefined && (
           <div className="msg assistant streaming">
-            <span className="msg-role">{active?.agent ?? "assistant"}</span>
+            <span className="msg-role">{orateur ?? active?.agent ?? "assistant"}</span>
             <div className="msg-content">
               {partiel}
               <span className="stream-caret" aria-hidden="true" />
@@ -147,7 +156,13 @@ export default function ChatZone(): React.JSX.Element {
         <input
           type="text"
           value={input}
-          placeholder={activeId ? "Votre message…" : "Ouvrez une session"}
+          placeholder={
+            !activeId
+              ? "Ouvrez une session"
+              : equipe
+                ? "Objectif confié à l'équipe…"
+                : "Votre message…"
+          }
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={!activeId || enCours}

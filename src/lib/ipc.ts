@@ -29,7 +29,11 @@ import type {
   SessionDoneEvent,
   SessionErrorEvent,
   SessionMeta,
+  SessionMessageEvent,
   SessionTokenEvent,
+  SessionTurnEvent,
+  Team,
+  TeamSavePayload,
   VaultEntry,
 } from "../types/ipc";
 
@@ -130,11 +134,31 @@ export const sessionExport = (
 export const sessionStream = {
   onToken: (handler: (e: SessionTokenEvent) => void) =>
     listen<SessionTokenEvent>("session:token", (e) => handler(e.payload)),
+  /** Un autre membre de l'équipe prend la parole. */
+  onTurn: (handler: (e: SessionTurnEvent) => void) =>
+    listen<SessionTurnEvent>("session:turn", (e) => handler(e.payload)),
+  /** Une intervention vient d'être ajoutée au fil. */
+  onMessage: (handler: (e: SessionMessageEvent) => void) =>
+    listen<SessionMessageEvent>("session:message", (e) => handler(e.payload)),
   onDone: (handler: (e: SessionDoneEvent) => void) =>
     listen<SessionDoneEvent>("session:done", (e) => handler(e.payload)),
   onError: (handler: (e: SessionErrorEvent) => void) =>
     listen<SessionErrorEvent>("session:error", (e) => handler(e.payload)),
 };
+
+// ===== Équipes =====
+
+export const teamsList = (): Promise<Team[]> => invoke<Team[]>("teams_list");
+
+export const teamSave = (payload: TeamSavePayload): Promise<Team> =>
+  invoke<Team>("team_save", { payload });
+
+export const teamDelete = (teamId: string): Promise<void> =>
+  invoke<void>("team_delete", { teamId });
+
+/** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
+export const teamRun = (sessionId: string, objective: string): Promise<void> =>
+  invoke<void>("team_run", { sessionId, objective });
 
 /** Écoute un événement de stream et retourne une fonction de désabonnement. */
 export function listenEvent<T>(

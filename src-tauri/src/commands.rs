@@ -8,6 +8,7 @@
 //! - Coffre : `vault_list`, `vault_read`, `vault_write`, `vault_path`
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
+//! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
 //! - Sessions : `sessions_list`, `session_create`, `session_get`,
 //!   `session_rename`, `session_delete`, `session_send`, `session_cancel`,
 //!   `session_export`
@@ -28,6 +29,7 @@ use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, 
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
 use crate::llm::streaming::StreamingManager;
 use crate::session::{Session, SessionManager, SessionMessage, SessionMeta};
+use crate::team::{self, Team, TeamMember, TeamStore, TeamStrategy};
 use crate::vault::{VaultEntry, VaultState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -761,6 +763,9 @@ pub struct SessionCreatePayload {
     /// Agent du coffre pilotant la session (`IA/agents/<nom>.md`).
     #[serde(default)]
     pub agent: Option<String>,
+    /// Équipe pilotant la session, exclusive de `agent`.
+    #[serde(default)]
+    pub team: Option<String>,
     /// Fournisseur ciblé. `None` = repli automatique sur le pool.
     #[serde(default)]
     pub provider: Option<String>,
@@ -822,8 +827,11 @@ pub async fn session_create(
     if payload.model.trim().is_empty() {
         return Err("model requis".into());
     }
+    if payload.agent.is_some() && payload.team.is_some() {
+        return Err("une session est menée par un agent OU par une équipe".into());
+    }
     sessions
-        .create(payload.agent, payload.provider, payload.model)
+        .create(payload.agent, payload.team, payload.provider, payload.model)
         .await
 }
 
@@ -864,6 +872,84 @@ pub async fn session_cancel(
     session_id: String,
 ) -> Result<bool, String> {
     Ok(sessions.cancel(&session_id).await)
+}
+
+/// Changement d'orateur dans une session d'équipe : l'interface ouvre une
+/// nouvelle bulle au nom de l'agent qui prend la parole.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTurnEvent {
+    pub session_id: String,
+    pub agent: String,
+    pub turn: u32,
+}
+
+/// Message ajouté au fil en cours d'exécution.
+///
+/// Une exécution d'équipe enchaîne plusieurs tours de parole : sans cet
+/// événement, les interventions intermédiaires n'apparaîtraient qu'à la fin
+/// de toute l'exécution.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMessageEvent {
+    pub session_id: String,
+    pub message: SessionMessage,
+    pub meta: SessionMeta,
+}
+
+/// Consomme un flux de jetons en diffusant `session:token`.
+///
+/// Renvoie `(texte accumulé, tour annulé, erreur éventuelle)`. Partagé par le
+/// chat à un agent et par l'orchestration d'équipe — une seule implémentation
+/// de l'annulation, du repli sur la réponse finale et de la fermeture du flux.
+async fn consommer_flux(
+    app: &AppHandle,
+    session_id: &str,
+    mut stream: crate::llm::provider::TokenStream,
+    annule: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> (String, bool, Option<String>) {
+    let mut texte = String::new();
+    let mut cancelled = false;
+    let mut echec = None;
+
+    while let Some(event) = stream.recv().await {
+        if annule.load(std::sync::atomic::Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
+        match event {
+            TokenEvent::Token(token) => {
+                texte.push_str(&token);
+                let _ = app.emit(
+                    "session:token",
+                    SessionTokenEvent {
+                        session_id: session_id.to_string(),
+                        token,
+                    },
+                );
+            }
+            TokenEvent::Done(response) => {
+                // La réponse finale fait foi : elle porte le texte complet, y
+                // compris ce qu'un fournisseur non streamant n'aurait pas émis
+                // jeton par jeton.
+                if let Some(choix) = response.choices.first() {
+                    if !choix.message.content.is_empty() {
+                        texte = choix.message.content.clone();
+                    }
+                }
+                break;
+            }
+            TokenEvent::Error(e) => {
+                echec = Some(e);
+                break;
+            }
+        }
+    }
+
+    // Fermer le flux fait échouer l'envoi côté fournisseur, ce qui arrête la
+    // génération au lieu de la laisser tourner dans le vide.
+    drop(stream);
+    (texte, cancelled, echec)
 }
 
 /// Envoie un message dans une session et diffuse la réponse.
@@ -919,7 +1005,7 @@ pub async fn session_send(
         Some(pid) => pool.chat_stream_with(pid, req).await,
         None => pool.chat_stream_with_fallback(req).await,
     };
-    let mut stream = match ouverture {
+    let stream = match ouverture {
         Ok(s) => s,
         Err(e) => {
             sessions.finish(&session_id).await;
@@ -935,47 +1021,7 @@ pub async fn session_send(
         }
     };
 
-    let mut texte = String::new();
-    let mut cancelled = false;
-    let mut echec: Option<String> = None;
-
-    while let Some(event) = stream.recv().await {
-        if annule.load(std::sync::atomic::Ordering::SeqCst) {
-            cancelled = true;
-            break;
-        }
-        match event {
-            TokenEvent::Token(token) => {
-                texte.push_str(&token);
-                let _ = app.emit(
-                    "session:token",
-                    SessionTokenEvent {
-                        session_id: session_id.clone(),
-                        token,
-                    },
-                );
-            }
-            TokenEvent::Done(response) => {
-                // La réponse finale fait foi : elle porte le texte complet, y
-                // compris ce qu'un fournisseur non streamant n'aurait pas
-                // émis jeton par jeton.
-                if let Some(choix) = response.choices.first() {
-                    if !choix.message.content.is_empty() {
-                        texte = choix.message.content.clone();
-                    }
-                }
-                break;
-            }
-            TokenEvent::Error(e) => {
-                echec = Some(e);
-                break;
-            }
-        }
-    }
-
-    // Fermer le flux fait échouer l'envoi côté fournisseur, ce qui arrête la
-    // génération au lieu de la laisser tourner dans le vide.
-    drop(stream);
+    let (texte, cancelled, echec) = consommer_flux(&app, &session_id, stream, &annule).await;
     sessions.finish(&session_id).await;
 
     if let Some(e) = echec {
@@ -1042,4 +1088,252 @@ pub fn session_export(
     let entry = vault.write_note(&chemin, &crate::session::to_markdown(&session))?;
     info!(note = %entry.path, "session exportée dans le brouillon du coffre");
     Ok(entry)
+}
+
+// ===== Commandes — Équipes =====
+
+pub type TeamStoreState = Arc<TeamStore>;
+
+/// Création ou mise à jour d'une équipe.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSavePayload {
+    /// `None` = création.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub members: Vec<TeamMember>,
+    pub strategy: TeamStrategy,
+    pub max_turns: u32,
+}
+
+pub fn init_team_store(app: &tauri::App) -> TeamStoreState {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("teams");
+    Arc::new(TeamStore::new(dir))
+}
+
+#[tauri::command]
+#[instrument(skip(teams))]
+pub fn teams_list(teams: State<'_, TeamStoreState>) -> Result<Vec<Team>, String> {
+    Ok(teams.list())
+}
+
+/// Enregistre une équipe. La validation (membres uniques, budget borné,
+/// superviseur accompagné) a lieu ici : une exécution ne doit jamais échouer
+/// à mi-parcours sur une équipe mal formée, budget déjà consommé.
+#[tauri::command]
+#[instrument(skip(teams, vault))]
+pub fn team_save(
+    teams: State<'_, TeamStoreState>,
+    vault: State<'_, VaultState>,
+    payload: TeamSavePayload,
+) -> Result<Team, String> {
+    let mut team = match &payload.id {
+        Some(id) => teams.load(id)?,
+        None => Team::new(
+            payload.name.clone(),
+            payload.description.clone(),
+            payload.members.clone(),
+            payload.strategy,
+            payload.max_turns,
+        ),
+    };
+    team.name = payload.name;
+    team.description = payload.description;
+    team.members = payload.members;
+    team.strategy = payload.strategy;
+    team.max_turns = payload.max_turns;
+    team.updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    team.validate()?;
+
+    // Un membre inconnu du coffre produirait une équipe qui tourne sans
+    // prompt système : autant le refuser tout de suite.
+    let connus: Vec<String> = vault
+        .agents_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    if !connus.is_empty() {
+        if let Some(m) = team.members.iter().find(|m| !connus.contains(&m.agent)) {
+            return Err(format!(
+                "l'agent « {} » n'existe pas dans le coffre (agents connus : {})",
+                m.agent,
+                connus.join(", ")
+            ));
+        }
+    }
+
+    teams.save(&team)?;
+    info!(equipe = %team.name, membres = team.members.len(), "équipe enregistrée");
+    Ok(team)
+}
+
+#[tauri::command]
+#[instrument(skip(teams))]
+pub fn team_delete(teams: State<'_, TeamStoreState>, team_id: String) -> Result<(), String> {
+    teams.delete(&team_id)
+}
+
+/// Fait travailler l'équipe d'une session sur un objectif.
+///
+/// Chaque membre parle à son tour avec **son propre modèle**, voit tout le fil
+/// (chaque message étant attribué à son auteur), et écrit sa réponse dans la
+/// session. L'exécution s'arrête au premier des trois : marqueur de fin,
+/// budget de tours épuisé, ou annulation.
+#[tauri::command]
+#[instrument(skip(app, sessions, teams, pool, vault))]
+pub async fn team_run(
+    app: AppHandle,
+    sessions: State<'_, SessionManagerState>,
+    teams: State<'_, TeamStoreState>,
+    pool: State<'_, ProviderPoolState>,
+    vault: State<'_, VaultState>,
+    session_id: String,
+    objective: String,
+) -> Result<(), String> {
+    let objectif = objective.trim().to_string();
+    if objectif.is_empty() {
+        return Err("objectif requis".into());
+    }
+    let session = sessions.get(&session_id)?;
+    let team_id = session
+        .meta
+        .team
+        .clone()
+        .ok_or("cette session n'est pas pilotée par une équipe")?;
+    let team = teams.load(&team_id)?;
+    team.validate()?;
+
+    sessions
+        .push_message(&session_id, SessionMessage::new("user", objectif.clone()))
+        .await?;
+
+    let annule = sessions.begin(&session_id).await;
+    let mut designe: Option<String> = None;
+    let mut tour: u32 = 0;
+    let mut cancelled = false;
+
+    while let Some(membre) = team::prochain_intervenant(&team, tour, designe.as_deref()) {
+        if annule.load(std::sync::atomic::Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
+        let _ = app.emit(
+            "session:turn",
+            SessionTurnEvent {
+                session_id: session_id.clone(),
+                agent: membre.agent.clone(),
+                turn: tour,
+            },
+        );
+
+        // Le prompt de l'agent vient du coffre ; le briefing d'équipe s'y
+        // ajoute sans le remplacer — l'agent reste lui-même.
+        let corps = match vault.agent_read(&format!("{}.md", membre.agent)) {
+            Ok(doc) => doc.content,
+            Err(e) => {
+                warn!(agent = %membre.agent, %e, "agent illisible, briefing seul");
+                String::new()
+            }
+        };
+        let systeme = format!("{corps}\n\n{}", team::briefing(&team, &membre, &objectif));
+
+        // Relu à chaque tour : le membre doit voir ce que les précédents ont dit.
+        let courante = sessions.get(&session_id)?;
+        let req = ChatRequest {
+            model: membre.model.clone(),
+            messages: courante.to_chat_messages(Some(&systeme)),
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+            metadata: HashMap::new(),
+        };
+
+        let ouverture = match &membre.provider {
+            Some(pid) => pool.chat_stream_with(pid, req).await,
+            None => pool.chat_stream_with_fallback(req).await,
+        };
+        let stream = match ouverture {
+            Ok(s) => s,
+            Err(e) => {
+                sessions.finish(&session_id).await;
+                let _ = app.emit(
+                    "session:error",
+                    SessionErrorEvent {
+                        session_id: session_id.clone(),
+                        error: format!("{} : {e}", membre.agent),
+                    },
+                );
+                return Err(e.to_string());
+            }
+        };
+
+        let (texte, stoppe, echec) = consommer_flux(&app, &session_id, stream, &annule).await;
+        if let Some(e) = echec {
+            sessions.finish(&session_id).await;
+            let _ = app.emit(
+                "session:error",
+                SessionErrorEvent {
+                    session_id: session_id.clone(),
+                    error: format!("{} : {e}", membre.agent),
+                },
+            );
+            return Err(e);
+        }
+        if !texte.trim().is_empty() {
+            let message = SessionMessage::new("assistant", texte.clone())
+                .with_agent(Some(membre.agent.clone()));
+            let meta = sessions.push_message(&session_id, message.clone()).await?;
+            let _ = app.emit(
+                "session:message",
+                SessionMessageEvent {
+                    session_id: session_id.clone(),
+                    message,
+                    meta,
+                },
+            );
+        }
+        if stoppe {
+            cancelled = true;
+            break;
+        }
+        if team::est_termine(&texte) {
+            info!(equipe = %team.name, tours = tour + 1, "objectif déclaré atteint");
+            break;
+        }
+        // Seul le superviseur distribue la parole.
+        if team.supervisor().is_some_and(|s| s.agent == membre.agent) {
+            designe = team::designation(&team, &texte);
+        }
+        tour += 1;
+    }
+
+    sessions.finish(&session_id).await;
+    let session = sessions.get(&session_id)?;
+    let dernier = session
+        .messages
+        .last()
+        .cloned()
+        .unwrap_or_else(|| SessionMessage::new("assistant", String::new()));
+    let _ = app.emit(
+        "session:done",
+        SessionDoneEvent {
+            session_id,
+            message: dernier,
+            meta: session.meta,
+            cancelled,
+        },
+    );
+    Ok(())
 }

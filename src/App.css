@@ -154,3 +154,15 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 @keyframes session-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){.session-dot{animation:none}}
 .chat-model{font-size:11px;color:var(--muted)}
+
+/* Équipes */
+.panel-section{border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px}
+.team-row{display:flex;align-items:flex-start;gap:6px;padding:4px 0}
+.team-body{min-width:0;flex:1}
+.team-title{font-size:13px;font-weight:600}
+.team-form{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.team-form label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--muted)}
+.team-member{display:flex;gap:4px;align-items:center}
+.team-member select,.team-member input{min-width:0;flex:1;font-size:11px}
+.team-actions{display:flex;gap:6px}
+.chat-speaker{font-size:11px;color:var(--muted)}
