@@ -1,168 +1,144 @@
 /**
- * Zone de conversation (centre).
+ * Zone de conversation (centre) — rendu de la session active.
  *
- * - Branche sur `chat_stream` via `useLlmStream` (événements llm:*).
- * - Sélection fournisseur/modèle héritée de `AppContext`.
- * - Rendu des messages, streaming en cours, erreur et bouton d'arrêt.
+ * L'historique et le prompt système sont tenus par le backend : cette zone
+ * n'assemble plus de messages, elle envoie du texte et affiche ce qui revient.
+ * Le prompt de l'agent est relu dans le coffre à chaque tour, donc modifier un
+ * agent prend effet sans rouvrir la session.
  */
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { useApp } from "../context/AppContext";
-import { useLlmStream } from "../hooks/useLlmStream";
-import * as ipc from "../lib/ipc";
-import type { ChatMessage } from "../types/ipc";
-
-const SYSTEM_PROMPT =
-  "Tu es un assistant intégré à un coffre Obsidian. Réponds de façon claire et concise.";
+import { useSessions } from "../context/SessionsContext";
+import SessionTabs from "./SessionTabs";
 
 export default function ChatZone(): React.JSX.Element {
-  const { selectedProviderId, selectedModel, agents, selectedAgent } = useApp();
-  const { tokens, isStreaming, isDone, error, send, stop } = useLlmStream();
+  const { agents, selectedModel } = useApp();
+  const {
+    active,
+    activeId,
+    sessions,
+    streaming,
+    busy,
+    errors,
+    loading,
+    createSession,
+    send,
+    cancel,
+    exportSession,
+  } = useSessions();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [pendingAt, setPendingAt] = useState<number | null>(null);
-  const [agentBody, setAgentBody] = useState<string | null>(null);
-
+  const [exportInfo, setExportInfo] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const commitRef = useRef(false);
 
-  const activeAgent = agents.find((a) => a.name === selectedAgent);
+  const enCours = activeId ? (busy[activeId] ?? false) : false;
+  const partiel = activeId ? streaming[activeId] : undefined;
+  const erreur = activeId ? errors[activeId] : errors.__global;
+  const agent = agents.find((a) => a.name === active?.agent);
 
-  const canSend = input.trim().length > 0 && Boolean(selectedModel) && !isStreaming;
-
-  // Corps markdown de l'agent actif (prompt système) via `agent_read`.
-  useEffect(() => {
-    const path = activeAgent?.path;
-    if (!path) {
-      setAgentBody(null);
-      return;
-    }
-    let cancelled = false;
-    void ipc
-      .agentRead(path)
-      .then((doc) => {
-        if (!cancelled) setAgentBody(doc.content);
-      })
-      .catch(() => {
-        if (!cancelled) setAgentBody(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeAgent?.path]);
-
-  // Auto-scroll sur nouveaux messages / tokens.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, tokens, isStreaming]);
+  }, [active?.messages.length, partiel]);
 
-  // Commit de la réponse assistant une fois le stream terminé.
-  useEffect(() => {
-    if (!isDone || pendingAt === null) return;
-    if (commitRef.current) return;
-    commitRef.current = true;
-    const content = tokens;
-    setMessages((prev) => {
-      const copy = [...prev];
-      copy[pendingAt] = { role: "assistant", content };
-      return copy;
-    });
-    setPendingAt(null);
-  }, [isDone, pendingAt, tokens]);
-
-  const handleSend = useCallback(async (): Promise<void> => {
-    const text = input.trim();
-    if (!text || !selectedModel || isStreaming) return;
-
-    // Prompt système : corps markdown complet de l'agent si disponible.
-    const systemPrompt = agentBody
-      ? agentBody
-      : activeAgent
-      ? `Tu agis selon l'agent « ${activeAgent.name} ».\n${activeAgent.description}`.trim()
-      : SYSTEM_PROMPT;
-
-    const userMsg: ChatMessage = { role: "user", content: text };
-    const next: ChatMessage[] = [
-      { role: "system", content: systemPrompt },
-      ...messages,
-      userMsg,
-    ];
-    setMessages(next);
+  const envoyer = (): void => {
+    if (!input.trim() || enCours) return;
+    void send(input);
     setInput("");
-    // L'emplacement de la réponse assistant est à la suite du message utilisateur.
-    setPendingAt(next.length);
-    commitRef.current = false;
-
-    await send(next, { provider: selectedProviderId, model: selectedModel });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, messages, selectedProviderId, selectedModel, isStreaming, agents, selectedAgent, agentBody, activeAgent, send]);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void handleSend();
+      envoyer();
     }
   };
 
-  const onStop = (): void => {
-    // Best-effort : ignore les événements restants côté UI.
-    stop();
+  const exporter = async (): Promise<void> => {
+    if (!activeId) return;
+    const projet = window.prompt("Nom du projet dans la mémoire du coffre :");
+    if (!projet?.trim()) return;
+    try {
+      const entry = await exportSession(activeId, projet);
+      setExportInfo(`Exporté dans ${entry.path}`);
+    } catch (e) {
+      setExportInfo(e instanceof Error ? e.message : String(e));
+    }
   };
 
-  // Messages historiques (inclut le pending assistant une fois commit).
-  const history = pendingAt === null ? messages : messages.slice(0, pendingAt);
-  const streamingContent = isStreaming || !isDone ? tokens : null;
+  // Aucune session ouverte : on invite à en créer une plutôt que d'afficher
+  // une conversation vide qui n'accepterait rien.
+  if (!loading && sessions.length === 0) {
+    return (
+      <div className="chat-zone">
+        <SessionTabs />
+        <div className="empty-state">
+          <p>Aucune session ouverte.</p>
+          <p className="empty-hint">
+            {selectedModel
+              ? "Ouvrez une session pour commencer une conversation."
+              : "Choisissez d'abord un fournisseur et un modèle dans le sélecteur."}
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void createSession()}
+            disabled={!selectedModel}
+          >
+            Nouvelle session
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-zone">
-      {activeAgent && (
+      <SessionTabs />
+
+      {active && (
         <div className="chat-agent-bar">
-          <span className="chat-agent-name">🤖 {activeAgent.name}</span>
-          {activeAgent.readOnly && (
-            <span className="badge badge-err">lecture seule</span>
-          )}
+          <span className="chat-agent-name">
+            {active.agent ? `🤖 ${active.agent}` : "Sans agent"}
+          </span>
+          <span className="chat-model">{active.model}</span>
+          {agent?.readOnly && <span className="badge badge-err">lecture seule</span>}
+          <button
+            type="button"
+            className="btn btn-mini"
+            onClick={() => void exporter()}
+            disabled={!active.messages.length}
+            title="Écrire la session dans brouillon/ du coffre"
+          >
+            Exporter
+          </button>
         </div>
       )}
-      <div className="messages" aria-live="polite">
-        {history.length === 0 && (
-          <div className="empty-state">
-            <p>Commencez une conversation.</p>
-            <p className="empty-hint">
-              Choisissez un fournisseur et un modèle dans le sélecteur, puis
-              écrivez votre premier message.
-            </p>
-          </div>
-        )}
 
-        {history.map((msg, i) => (
-          <div className={`msg ${msg.role}`} key={i}>
-            <span className="msg-role">{msg.role}</span>
+      <div className="messages" aria-live="polite">
+        {active?.messages.map((msg, i) => (
+          <div className={`msg ${msg.role}`} key={`${msg.at}-${i}`}>
+            <span className="msg-role">{msg.agent ?? msg.role}</span>
             <div className="msg-content">{msg.content}</div>
           </div>
         ))}
 
-        {streamingContent !== null && streamingContent.length > 0 && (
+        {partiel !== undefined && (
           <div className="msg assistant streaming">
-            <span className="msg-role">assistant</span>
+            <span className="msg-role">{active?.agent ?? "assistant"}</span>
             <div className="msg-content">
-              {streamingContent}
+              {partiel}
               <span className="stream-caret" aria-hidden="true" />
             </div>
           </div>
         )}
 
-        {error && (
+        {erreur && (
           <div className="error-banner" role="alert">
-            ⚠️ {error}
+            ⚠️ {erreur}
           </div>
         )}
+        {exportInfo && <p className="empty-hint">{exportInfo}</p>}
 
         <div ref={bottomRef} />
       </div>
@@ -171,22 +147,26 @@ export default function ChatZone(): React.JSX.Element {
         <input
           type="text"
           value={input}
-          placeholder={selectedModel ? "Votre message…" : "Sélectionnez un modèle"}
+          placeholder={activeId ? "Votre message…" : "Ouvrez une session"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          disabled={!selectedModel}
+          disabled={!activeId || enCours}
           aria-label="Message"
         />
-        {isStreaming ? (
-          <button type="button" className="btn btn-ghost" onClick={onStop}>
+        {enCours ? (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => void cancel(activeId!)}
+          >
             ⏹ Stop
           </button>
         ) : (
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => void handleSend()}
-            disabled={!canSend}
+            onClick={envoyer}
+            disabled={!activeId || !input.trim()}
           >
             Envoyer
           </button>

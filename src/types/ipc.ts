@@ -157,6 +157,59 @@ export interface RuntimeScan {
   binaries: DetectedBinary[];
 }
 
+// ===== Sessions (session.rs = camelCase) =====
+
+export interface SessionMessage {
+  role: ChatRole;
+  content: string;
+  /** Horodatage Unix en secondes. */
+  at: number;
+  /** Agent auteur — renseigné pour les sessions d'équipe. */
+  agent?: string | null;
+}
+
+export interface SessionMeta {
+  id: string;
+  title: string;
+  agent?: string | null;
+  provider?: string | null;
+  model: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+}
+
+/** Session complète : `SessionMeta` aplati + historique. */
+export interface Session extends SessionMeta {
+  messages: SessionMessage[];
+}
+
+export interface SessionCreatePayload {
+  agent?: string | null;
+  provider?: string | null;
+  model: string;
+}
+
+// ===== Événements de session =====
+
+export interface SessionTokenEvent {
+  sessionId: string;
+  token: string;
+}
+
+export interface SessionDoneEvent {
+  sessionId: string;
+  message: SessionMessage;
+  meta: SessionMeta;
+  /** Vrai si le tour a été interrompu par `session_cancel`. */
+  cancelled: boolean;
+}
+
+export interface SessionErrorEvent {
+  sessionId: string;
+  error: string;
+}
+
 // ===== Coffre (vault.rs = camelCase) =====
 
 export interface VaultEntry {

@@ -8,22 +8,32 @@
 //! - Coffre : `vault_list`, `vault_read`, `vault_write`, `vault_path`
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
+//! - Sessions : `sessions_list`, `session_create`, `session_get`,
+//!   `session_rename`, `session_delete`, `session_send`, `session_cancel`,
+//!   `session_export`
 //!
-//! Événements de stream (rétro-compatibles) : `llm:token`, `llm:done`, `llm:error`.
+//! Événements de stream :
+//! - par session : `session:token`, `session:done`, `session:error` — la
+//!   charge utile porte `sessionId`, ce qui permet à l'interface de
+//!   s'abonner une fois pour toutes les sessions ouvertes ;
+//! - hérités, pour le chat sans session : `llm:token`, `llm:done`,
+//!   `llm:error`.
 
 use crate::agents::{AgentDoc, AgentInfo};
 use crate::config::{AppConfig, ConfigPatch, ConfigState, ConfigView};
 use crate::discovery::{self, RuntimeKind, RuntimeScan};
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
+use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
 use crate::llm::streaming::StreamingManager;
+use crate::session::{Session, SessionManager, SessionMessage, SessionMeta};
 use crate::vault::{VaultEntry, VaultState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 // ===== Types du contrat =====
 
@@ -64,6 +74,7 @@ pub struct ProviderHealth {
 pub type ProviderRegistryState = Arc<ProviderRegistry>;
 pub type ModelRegistryState = Arc<ModelRegistry>;
 pub type ProviderPoolState = Arc<ProviderPool>;
+pub type SessionManagerState = Arc<SessionManager>;
 
 // ===== Initialisation (appelée depuis setup dans lib.rs) =====
 
@@ -739,4 +750,296 @@ pub fn agents_list(vault: State<'_, VaultState>) -> Result<Vec<AgentInfo>, Strin
 #[instrument(skip(vault))]
 pub fn agent_read(vault: State<'_, VaultState>, path: String) -> Result<AgentDoc, String> {
     vault.agent_read(&path)
+}
+
+// ===== Commandes — Sessions =====
+
+/// Paramètres d'ouverture d'une session.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCreatePayload {
+    /// Agent du coffre pilotant la session (`IA/agents/<nom>.md`).
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Fournisseur ciblé. `None` = repli automatique sur le pool.
+    #[serde(default)]
+    pub provider: Option<String>,
+    pub model: String,
+}
+
+/// Fragment de réponse. Porte `sessionId` : l'interface s'abonne une seule
+/// fois et route vers le bon onglet.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTokenEvent {
+    pub session_id: String,
+    pub token: String,
+}
+
+/// Fin de tour : message complet tel qu'il a été persisté.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDoneEvent {
+    pub session_id: String,
+    pub message: SessionMessage,
+    pub meta: SessionMeta,
+    /// Vrai si le tour a été interrompu par `session_cancel`.
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionErrorEvent {
+    pub session_id: String,
+    pub error: String,
+}
+
+/// Gestionnaire de sessions : stockage dans les données applicatives.
+pub fn init_session_manager(app: &tauri::App) -> SessionManagerState {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("sessions");
+    Arc::new(SessionManager::new(dir))
+}
+
+/// Liste les sessions, la plus récemment active en tête.
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub fn sessions_list(sessions: State<'_, SessionManagerState>) -> Result<Vec<SessionMeta>, String> {
+    Ok(sessions.list())
+}
+
+/// Ouvre une session.
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub async fn session_create(
+    sessions: State<'_, SessionManagerState>,
+    payload: SessionCreatePayload,
+) -> Result<SessionMeta, String> {
+    if payload.model.trim().is_empty() {
+        return Err("model requis".into());
+    }
+    sessions
+        .create(payload.agent, payload.provider, payload.model)
+        .await
+}
+
+/// Session complète, historique compris.
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub fn session_get(
+    sessions: State<'_, SessionManagerState>,
+    session_id: String,
+) -> Result<Session, String> {
+    sessions.get(&session_id)
+}
+
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub async fn session_rename(
+    sessions: State<'_, SessionManagerState>,
+    session_id: String,
+    title: String,
+) -> Result<SessionMeta, String> {
+    sessions.rename(&session_id, &title).await
+}
+
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub async fn session_delete(
+    sessions: State<'_, SessionManagerState>,
+    session_id: String,
+) -> Result<(), String> {
+    sessions.delete(&session_id).await
+}
+
+/// Interrompt le tour en cours. Le texte déjà produit est conservé.
+#[tauri::command]
+#[instrument(skip(sessions))]
+pub async fn session_cancel(
+    sessions: State<'_, SessionManagerState>,
+    session_id: String,
+) -> Result<bool, String> {
+    Ok(sessions.cancel(&session_id).await)
+}
+
+/// Envoie un message dans une session et diffuse la réponse.
+///
+/// Le prompt système est relu **dans le coffre à chaque tour** : modifier un
+/// agent doit prendre effet immédiatement, sans rouvrir la session.
+#[tauri::command]
+#[instrument(skip(app, sessions, pool, vault))]
+pub async fn session_send(
+    app: AppHandle,
+    sessions: State<'_, SessionManagerState>,
+    pool: State<'_, ProviderPoolState>,
+    vault: State<'_, VaultState>,
+    session_id: String,
+    content: String,
+) -> Result<(), String> {
+    if content.trim().is_empty() {
+        return Err("message vide refusé".into());
+    }
+
+    // L'agent est optionnel, et un agent illisible ne doit pas bloquer la
+    // conversation : on continue sans prompt système, en le signalant.
+    let session = sessions.get(&session_id)?;
+    let system_prompt =
+        session
+            .meta
+            .agent
+            .as_ref()
+            .and_then(|nom| match vault.agent_read(&format!("{nom}.md")) {
+                Ok(doc) => Some(doc.content),
+                Err(e) => {
+                    warn!(agent = %nom, %e, "prompt système introuvable, session sans agent");
+                    None
+                }
+            });
+
+    sessions
+        .push_message(&session_id, SessionMessage::new("user", content))
+        .await?;
+    let session = sessions.get(&session_id)?;
+
+    let req = ChatRequest {
+        model: session.meta.model.clone(),
+        messages: session.to_chat_messages(system_prompt.as_deref()),
+        temperature: None,
+        max_tokens: None,
+        stream: true,
+        metadata: HashMap::new(),
+    };
+
+    let annule = sessions.begin(&session_id).await;
+    let ouverture = match &session.meta.provider {
+        Some(pid) => pool.chat_stream_with(pid, req).await,
+        None => pool.chat_stream_with_fallback(req).await,
+    };
+    let mut stream = match ouverture {
+        Ok(s) => s,
+        Err(e) => {
+            sessions.finish(&session_id).await;
+            let _ = app.emit(
+                "session:error",
+                SessionErrorEvent {
+                    session_id: session_id.clone(),
+                    error: e.to_string(),
+                },
+            );
+            error!(%e, "ouverture du flux de session échouée");
+            return Err(e.to_string());
+        }
+    };
+
+    let mut texte = String::new();
+    let mut cancelled = false;
+    let mut echec: Option<String> = None;
+
+    while let Some(event) = stream.recv().await {
+        if annule.load(std::sync::atomic::Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
+        match event {
+            TokenEvent::Token(token) => {
+                texte.push_str(&token);
+                let _ = app.emit(
+                    "session:token",
+                    SessionTokenEvent {
+                        session_id: session_id.clone(),
+                        token,
+                    },
+                );
+            }
+            TokenEvent::Done(response) => {
+                // La réponse finale fait foi : elle porte le texte complet, y
+                // compris ce qu'un fournisseur non streamant n'aurait pas
+                // émis jeton par jeton.
+                if let Some(choix) = response.choices.first() {
+                    if !choix.message.content.is_empty() {
+                        texte = choix.message.content.clone();
+                    }
+                }
+                break;
+            }
+            TokenEvent::Error(e) => {
+                echec = Some(e);
+                break;
+            }
+        }
+    }
+
+    // Fermer le flux fait échouer l'envoi côté fournisseur, ce qui arrête la
+    // génération au lieu de la laisser tourner dans le vide.
+    drop(stream);
+    sessions.finish(&session_id).await;
+
+    if let Some(e) = echec {
+        let _ = app.emit(
+            "session:error",
+            SessionErrorEvent {
+                session_id: session_id.clone(),
+                error: e.clone(),
+            },
+        );
+        return Err(e);
+    }
+
+    // Un tour annulé sans le moindre jeton n'a rien à conserver.
+    if texte.is_empty() && cancelled {
+        let meta = sessions.get(&session_id)?.meta;
+        let _ = app.emit(
+            "session:done",
+            SessionDoneEvent {
+                session_id: session_id.clone(),
+                message: SessionMessage::new("assistant", String::new()),
+                meta,
+                cancelled: true,
+            },
+        );
+        return Ok(());
+    }
+
+    let message = SessionMessage::new("assistant", texte).with_agent(session.meta.agent.clone());
+    let meta = sessions.push_message(&session_id, message.clone()).await?;
+    let _ = app.emit(
+        "session:done",
+        SessionDoneEvent {
+            session_id,
+            message,
+            meta,
+            cancelled,
+        },
+    );
+    Ok(())
+}
+
+/// Exporte une session en note Markdown dans `brouillon/`.
+///
+/// L'écriture vise la seule zone écrivable du coffre et reproduit la structure
+/// de `mémoire/` : la revue humaine n'a plus qu'à déplacer l'arborescence
+/// (cf. `VAULT-CONTRACT.md` §2).
+#[tauri::command]
+#[instrument(skip(sessions, vault))]
+pub fn session_export(
+    sessions: State<'_, SessionManagerState>,
+    vault: State<'_, VaultState>,
+    session_id: String,
+    project: String,
+) -> Result<VaultEntry, String> {
+    if project.trim().is_empty() {
+        return Err("nom de projet requis".into());
+    }
+    let session = sessions.get(&session_id)?;
+    if session.messages.is_empty() {
+        return Err("session vide : rien à exporter".into());
+    }
+    let chemin = crate::session::export_path(&session, &project);
+    let entry = vault.write_note(&chemin, &crate::session::to_markdown(&session))?;
+    info!(note = %entry.path, "session exportée dans le brouillon du coffre");
+    Ok(entry)
 }

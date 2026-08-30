@@ -5,6 +5,7 @@ import ControlPanel from "./components/ControlPanel";
 import FileManager from "./components/FileManager";
 import ProviderSelector from "./components/ProviderSelector";
 import { AppProvider } from "./context/AppContext";
+import { SessionsProvider } from "./context/SessionsContext";
 import "./App.css";
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
 
   return (
     <AppProvider>
+      <SessionsProvider>
       <div className="layout">
       <header className="topbar">
         <div className="topbar-left">
@@ -42,6 +44,7 @@ export default function App() {
         )}
       </div>
       </div>
+      </SessionsProvider>
     </AppProvider>
   );
 }

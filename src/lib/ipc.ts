@@ -24,6 +24,12 @@ import type {
   ProviderHealth,
   ProviderInfo,
   RuntimeScan,
+  Session,
+  SessionCreatePayload,
+  SessionDoneEvent,
+  SessionErrorEvent,
+  SessionMeta,
+  SessionTokenEvent,
   VaultEntry,
 } from "../types/ipc";
 
@@ -84,6 +90,51 @@ export const agentsList = (): Promise<AgentInfo[]> =>
 /** Lit un agent complet (chemin relatif `IA/agents/*.md` ou simple nom). */
 export const agentRead = (path: string): Promise<AgentDoc> =>
   invoke<AgentDoc>("agent_read", { path });
+
+// ===== Sessions =====
+
+export const sessionsList = (): Promise<SessionMeta[]> =>
+  invoke<SessionMeta[]>("sessions_list");
+
+export const sessionCreate = (payload: SessionCreatePayload): Promise<SessionMeta> =>
+  invoke<SessionMeta>("session_create", { payload });
+
+export const sessionGet = (sessionId: string): Promise<Session> =>
+  invoke<Session>("session_get", { sessionId });
+
+export const sessionRename = (sessionId: string, title: string): Promise<SessionMeta> =>
+  invoke<SessionMeta>("session_rename", { sessionId, title });
+
+export const sessionDelete = (sessionId: string): Promise<void> =>
+  invoke<void>("session_delete", { sessionId });
+
+/** Envoie un message ; la réponse arrive via les événements `session:*`. */
+export const sessionSend = (sessionId: string, content: string): Promise<void> =>
+  invoke<void>("session_send", { sessionId, content });
+
+/** Interrompt le tour en cours ; le texte déjà produit est conservé. */
+export const sessionCancel = (sessionId: string): Promise<boolean> =>
+  invoke<boolean>("session_cancel", { sessionId });
+
+/** Exporte la session en note Markdown dans `brouillon/` du coffre. */
+export const sessionExport = (
+  sessionId: string,
+  project: string,
+): Promise<VaultEntry> =>
+  invoke<VaultEntry>("session_export", { sessionId, project });
+
+/**
+ * Abonnements aux événements de session. Un seul abonnement couvre toutes les
+ * sessions ouvertes : la charge utile porte `sessionId`.
+ */
+export const sessionStream = {
+  onToken: (handler: (e: SessionTokenEvent) => void) =>
+    listen<SessionTokenEvent>("session:token", (e) => handler(e.payload)),
+  onDone: (handler: (e: SessionDoneEvent) => void) =>
+    listen<SessionDoneEvent>("session:done", (e) => handler(e.payload)),
+  onError: (handler: (e: SessionErrorEvent) => void) =>
+    listen<SessionErrorEvent>("session:error", (e) => handler(e.payload)),
+};
 
 /** Écoute un événement de stream et retourne une fonction de désabonnement. */
 export function listenEvent<T>(
