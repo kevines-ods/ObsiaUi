@@ -22,9 +22,12 @@ futures = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }
 dirs = { workspace = true }
+axum = { workspace = true }
+sha2 = { workspace = true }
 
 [build-dependencies]
 tauri-build = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio-tungstenite = { workspace = true }

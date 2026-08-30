@@ -54,8 +54,10 @@ impl VaultState {
     /// Ordre de résolution :
     /// 1. Env var `OBSIA_VAULT_PATH` (chemin configurable, prioritaire)
     /// 2. Racine passée par le config file (via `vault_path` de la config)
-    /// 3. Défaut dev : `<cwd>/../obsia_vault` puis `<cwd>/obsia_vault`
-    /// 4. Dernier recours : `~/obsia_vault`
+    /// 3. Défauts dev : les deux dépôts clonés côte à côte
+    ///    (`../OBSIA/obsia_vault`), puis les dispositions plus anciennes
+    ///    (`../obsia_vault`, `<cwd>/obsia_vault`)
+    /// 4. Dernier recours : `~/OBSIA/obsia_vault` puis `~/obsia_vault`
     pub fn resolve(root_override: Option<String>) -> Result<Self, String> {
         let candidates: Vec<PathBuf> = if let Some(p) = root_override {
             vec![PathBuf::from(p)]
@@ -63,9 +65,16 @@ impl VaultState {
             vec![PathBuf::from(p)]
         } else {
             let cwd = std::env::current_dir().unwrap_or_default();
+            // Le coffre vit dans son propre dépôt depuis la séparation :
+            // `../OBSIA/obsia_vault` est la disposition courante (dépôts
+            // frères), les suivantes couvrent les clones plus anciens.
             vec![
+                cwd.join("../OBSIA/obsia_vault"),
                 cwd.join("../obsia_vault"),
                 cwd.join("obsia_vault"),
+                dirs::home_dir()
+                    .map(|h| h.join("OBSIA/obsia_vault"))
+                    .unwrap_or_default(),
                 dirs::home_dir()
                     .map(|h| h.join("obsia_vault"))
                     .unwrap_or_default(),

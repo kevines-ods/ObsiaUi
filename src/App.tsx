@@ -3,8 +3,10 @@ import AgentSelector from "./components/AgentSelector";
 import ChatZone from "./components/ChatZone";
 import ControlPanel from "./components/ControlPanel";
 import FileManager from "./components/FileManager";
+import PluginSlot from "./components/PluginSlot";
 import ProviderSelector from "./components/ProviderSelector";
 import { AppProvider } from "./context/AppContext";
+import { SessionsProvider } from "./context/SessionsContext";
 import "./App.css";
 
 export default function App() {
@@ -13,6 +15,7 @@ export default function App() {
 
   return (
     <AppProvider>
+      <SessionsProvider>
       <div className="layout">
       <header className="topbar">
         <div className="topbar-left">
@@ -42,6 +45,8 @@ export default function App() {
         )}
       </div>
       </div>
+      <PluginSlot point="status-bar" />
+      </SessionsProvider>
     </AppProvider>
   );
 }

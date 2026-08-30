@@ -138,3 +138,51 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .runtime-version{font-weight:400;color:var(--muted)}
 .runtime-meta{font-size:11px;color:var(--muted);word-break:break-word}
 .runtime-meta code{font-size:11px}
+
+/* Onglets de sessions */
+.session-tabs{display:flex;align-items:center;gap:4px;overflow-x:auto;border-bottom:1px solid var(--border);padding:4px 6px}
+.session-tab{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid transparent;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;max-width:220px}
+.session-tab:hover{background:var(--panel)}
+.session-tab.active{border-color:var(--border);background:var(--panel);font-weight:600}
+.session-title{overflow:hidden;text-overflow:ellipsis}
+.session-rename{font-size:12px;padding:1px 4px;max-width:160px}
+.session-close{border:0;background:none;cursor:pointer;color:var(--muted);font-size:14px;line-height:1;padding:0 2px}
+.session-close:hover{color:var(--err)}
+.session-new{border:1px dashed var(--border);background:none;border-radius:6px;cursor:pointer;color:var(--muted);padding:2px 9px;font-size:14px}
+/* Pastille : une session qui répond reste visible même hors écran. */
+.session-dot{width:7px;height:7px;border-radius:50%;background:var(--ok,#2a2);flex:none;animation:session-pulse 1.2s ease-in-out infinite}
+@keyframes session-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion: reduce){.session-dot{animation:none}}
+.chat-model{font-size:11px;color:var(--muted)}
+
+/* Équipes */
+.panel-section{border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px}
+.team-row{display:flex;align-items:flex-start;gap:6px;padding:4px 0}
+.team-body{min-width:0;flex:1}
+.team-title{font-size:13px;font-weight:600}
+.team-form{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.team-form label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--muted)}
+.team-member{display:flex;gap:4px;align-items:center}
+.team-member select,.team-member input{min-width:0;flex:1;font-size:11px}
+.team-actions{display:flex;gap:6px}
+.chat-speaker{font-size:11px;color:var(--muted)}
+
+/* Plans */
+.plan-row{padding:5px 0;border-bottom:1px dotted var(--border)}
+.plan-head{display:flex;align-items:center;gap:6px}
+.plan-head .team-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.step-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.step-chip{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);color:var(--muted);cursor:help}
+.step-pending{opacity:.65}
+.step-running{border-color:var(--ok,#2a2);color:var(--ok,#2a2);animation:session-pulse 1.2s ease-in-out infinite}
+.step-done{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.step-failed{background:var(--err-bg);color:var(--err);border-color:var(--err)}
+.step-skipped{text-decoration:line-through;opacity:.55}
+.plan-draft{border:1px dashed var(--border);border-radius:6px;padding:6px;display:flex;flex-direction:column;gap:2px}
+@media (prefers-reduced-motion: reduce){.step-running{animation:none}}
+
+/* Points d'accroche des plugins */
+.plugin-slot{display:flex;flex-wrap:wrap;gap:6px}
+.plugin-slot-control-panel{flex-direction:column;align-items:stretch;margin-top:8px}
+.plugin-slot-status-bar{border-top:1px solid var(--border);padding:3px 8px;font-size:11px;color:var(--muted)}
+.plugin-mount{min-width:0}
