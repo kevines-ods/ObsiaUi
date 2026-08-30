@@ -175,19 +175,19 @@ impl UiPatch {
         }
         self.layout.validate()
     }
+}
 
-    /// Rend le patch en déclarations CSS, à poser sur `:root`.
-    ///
-    /// Uniquement des propriétés personnalisées : elles sont inertes tant
-    /// qu'une règle existante ne les référence pas, ce qui borne l'effet d'un
-    /// patch à la palette prévue par l'interface.
-    pub fn to_css(&self) -> String {
-        self.theme
-            .iter()
-            .map(|(nom, valeur)| format!("--{nom}: {valeur};"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
+/// Rend des jetons en déclarations CSS, à poser sur `:root`.
+///
+/// Uniquement des propriétés personnalisées : elles sont inertes tant qu'une
+/// règle existante ne les référence pas, ce qui borne l'effet d'un patch à la
+/// palette prévue par l'interface.
+pub fn rendre_jetons(theme: &BTreeMap<String, String>) -> String {
+    theme
+        .iter()
+        .map(|(nom, valeur)| format!("--{nom}: {valeur};"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Un nom de jeton : minuscules, chiffres, tirets. Pas de `--` initial, il est
@@ -458,11 +458,7 @@ impl PluginStore {
                 fusion.insert(nom, valeur);
             }
         }
-        fusion
-            .iter()
-            .map(|(nom, valeur)| format!("--{nom}: {valeur};"))
-            .collect::<Vec<_>>()
-            .join("\n")
+        rendre_jetons(&fusion)
     }
 
     // --- Plugins ---
@@ -697,7 +693,7 @@ mod tests {
         // Elles sont inertes tant qu'une règle existante ne les référence pas.
         let p = patch(&[("panel-bg", "#18191b"), ("border", "#3a3a3a")]);
         p.validate().unwrap();
-        let css = p.to_css();
+        let css = rendre_jetons(&p.theme);
         assert!(css.contains("--panel-bg: #18191b;"));
         assert!(css.contains("--border: #3a3a3a;"));
         assert!(!css.contains('{'), "un patch ne produit jamais de règle");
@@ -731,7 +727,7 @@ mod tests {
         // Ordre déterministe : un diff Git reste lisible.
         let a = patch(&[("b", "#111"), ("a", "#222")]);
         let b = patch(&[("a", "#222"), ("b", "#111")]);
-        assert_eq!(a.to_css(), b.to_css());
+        assert_eq!(rendre_jetons(&a.theme), rendre_jetons(&b.theme));
     }
 
     // ===== Disposition =====
