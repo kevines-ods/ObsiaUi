@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 
 import { useApp } from "../context/AppContext";
 import PlansPanel from "./PlansPanel";
+import PluginSlot from "./PluginSlot";
+import PluginsPanel from "./PluginsPanel";
 import RemotePanel from "./RemotePanel";
 import TeamsPanel from "./TeamsPanel";
 import * as ipc from "../lib/ipc";
@@ -116,6 +118,10 @@ export default function ControlPanel(): React.JSX.Element {
       <PlansPanel />
 
       <RemotePanel />
+
+      <PluginsPanel />
+
+      <PluginSlot point="control-panel" />
 
       {loadError && <p className="err-text">{loadError}</p>}
 

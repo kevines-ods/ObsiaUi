@@ -9,6 +9,10 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - Interface : `patches_list`, `patch_save`, `patch_delete`,
+//!   `patch_toggle`, `patch_css`
+//! - Plugins : `plugins_list`, `plugins_load`, `plugins_dir`,
+//!   `plugin_enable`, `plugin_disable`
 //! - Distant : `remote_status`, `remote_start`, `remote_stop`,
 //!   `remote_token_read`, `remote_token_rotate`
 //! - Plans : `plans_list`, `plan_save`, `plan_delete`, `plan_draft`,
@@ -33,6 +37,7 @@ use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
 use crate::plan::{self, Plan, PlanManager, PlanStatus, PlanStep};
+use crate::plugin::{self, InstalledPlugin, LayoutPatch, PluginStore, UiPatch};
 use crate::remote::{self, Harness, RemoteState};
 use crate::session::{Session, SessionManager, SessionMessage, SessionMeta};
 use crate::team::{self, Team, TeamMember, TeamStore, TeamStrategy};
@@ -1945,4 +1950,169 @@ pub async fn remote_token_rotate(
     }
     info!("jeton distant renouvelé");
     Ok(jeton)
+}
+
+// ===== Commandes — Patches d'interface et plugins =====
+
+pub type PluginStoreState = Arc<PluginStore>;
+
+/// Création ou mise à jour d'un patch d'interface.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchSavePayload {
+    /// `None` = création.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub theme: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub layout: LayoutPatch,
+}
+
+pub fn init_plugin_store(app: &tauri::App) -> PluginStoreState {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let store = PluginStore::new(dir);
+    // Le dossier est créé au démarrage pour que l'utilisateur puisse y
+    // déposer un plugin sans avoir à deviner le chemin ni à le créer.
+    if let Err(e) = std::fs::create_dir_all(store.plugins_dir()) {
+        warn!(%e, "dossier des plugins non créé");
+    }
+    Arc::new(store)
+}
+
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn patches_list(plugins: State<'_, PluginStoreState>) -> Result<Vec<UiPatch>, String> {
+    Ok(plugins.list_patches())
+}
+
+/// Enregistre un patch. La validation (valeurs CSS, bornes de disposition)
+/// a lieu ici : c'est le seul rempart, puisque le patch finit injecté dans
+/// la feuille de style de la fenêtre.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn patch_save(
+    plugins: State<'_, PluginStoreState>,
+    payload: PatchSavePayload,
+) -> Result<UiPatch, String> {
+    let mut patch = match &payload.id {
+        Some(id) => plugins.load_patch(id)?,
+        None => UiPatch::new(payload.name.clone(), payload.description.clone()),
+    };
+    patch.name = payload.name;
+    patch.description = payload.description;
+    patch.theme = payload.theme;
+    patch.layout = payload.layout;
+    patch.updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    plugins.save_patch(&patch)?;
+    Ok(patch)
+}
+
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn patch_delete(plugins: State<'_, PluginStoreState>, patch_id: String) -> Result<(), String> {
+    plugins.delete_patch(&patch_id)
+}
+
+/// Active ou désactive un patch, et renvoie le CSS cumulé qui en résulte.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn patch_toggle(
+    plugins: State<'_, PluginStoreState>,
+    patch_id: String,
+    enabled: bool,
+) -> Result<String, String> {
+    let mut patch = plugins.load_patch(&patch_id)?;
+    patch.enabled = enabled;
+    plugins.save_patch(&patch)?;
+    Ok(plugins.css_actif())
+}
+
+/// CSS cumulé des patches actifs, à poser sur `:root`.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn patch_css(plugins: State<'_, PluginStoreState>) -> Result<String, String> {
+    Ok(plugins.css_actif())
+}
+
+/// Plugin prêt à être chargé par l'interface.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedPlugin {
+    #[serde(flatten)]
+    pub plugin: InstalledPlugin,
+    /// Code source du plugin.
+    pub source: String,
+    /// Commandes que ses permissions lui ouvrent.
+    pub allowed_commands: Vec<String>,
+}
+
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn plugins_list(plugins: State<'_, PluginStoreState>) -> Result<Vec<InstalledPlugin>, String> {
+    Ok(plugins.list_plugins())
+}
+
+/// Dossier où déposer un plugin.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn plugins_dir(plugins: State<'_, PluginStoreState>) -> Result<String, String> {
+    Ok(plugins.plugins_dir().display().to_string())
+}
+
+/// Charge les plugins actifs, avec leur code et leurs commandes permises.
+///
+/// Un plugin dont le fichier a changé depuis l'activation n'est pas renvoyé :
+/// il attend d'être réapprouvé.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn plugins_load(plugins: State<'_, PluginStoreState>) -> Result<Vec<LoadedPlugin>, String> {
+    let mut out = Vec::new();
+    for p in plugins.list_plugins() {
+        if !p.enabled || p.needs_review {
+            continue;
+        }
+        match plugins.source(&p.manifest.id) {
+            Ok(source) => {
+                let allowed_commands = plugin::commandes_autorisees(&p.manifest.permissions);
+                out.push(LoadedPlugin {
+                    plugin: p,
+                    source,
+                    allowed_commands,
+                });
+            }
+            Err(e) => warn!(plugin = %p.manifest.id, %e, "code illisible, plugin ignoré"),
+        }
+    }
+    info!(actifs = out.len(), "plugins chargés");
+    Ok(out)
+}
+
+/// Active un plugin en approuvant le code présent sur disque.
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn plugin_enable(
+    plugins: State<'_, PluginStoreState>,
+    plugin_id: String,
+) -> Result<InstalledPlugin, String> {
+    plugins.enable(&plugin_id)
+}
+
+#[tauri::command]
+#[instrument(skip(plugins))]
+pub fn plugin_disable(
+    plugins: State<'_, PluginStoreState>,
+    plugin_id: String,
+) -> Result<(), String> {
+    plugins.disable(&plugin_id)
 }

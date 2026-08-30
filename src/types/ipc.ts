@@ -326,6 +326,68 @@ export interface PlanUpdateEvent {
   plan: Plan;
 }
 
+// ===== Interface et plugins (plugin.rs = camelCase) =====
+
+export interface LayoutPatch {
+  leftOpen?: boolean | null;
+  rightOpen?: boolean | null;
+  /** Largeur du panneau de contrôle, en pixels. */
+  leftWidth?: number | null;
+  /** Largeur du gestionnaire de fichiers, en pixels. */
+  rightWidth?: number | null;
+  /** Ordre des sections du panneau de contrôle. */
+  panels?: string[] | null;
+}
+
+export interface UiPatch {
+  id: string;
+  name: string;
+  description: string;
+  /** Jetons de thème : nom (sans `--`) vers valeur CSS validée. */
+  theme: Record<string, string>;
+  layout: LayoutPatch;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PatchSavePayload {
+  id?: string | null;
+  name: string;
+  description: string;
+  theme: Record<string, string>;
+  layout: LayoutPatch;
+}
+
+/** Sérialisés en kebab-case côté Rust. */
+export type MountPoint = "control-panel" | "chat-toolbar" | "status-bar";
+export type PluginPermission = "vault-read" | "vault-write" | "sessions" | "providers";
+
+export interface PluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  entry: string;
+  mount: MountPoint[];
+  permissions: PluginPermission[];
+}
+
+/** Manifeste aplati + état d'activation. */
+export interface InstalledPlugin extends PluginManifest {
+  enabled: boolean;
+  approvedDigest?: string | null;
+  currentDigest?: string | null;
+  /** Vrai quand le fichier a changé depuis l'activation. */
+  needsReview: boolean;
+}
+
+export interface LoadedPlugin extends InstalledPlugin {
+  source: string;
+  /** Commandes que ses permissions lui ouvrent. */
+  allowedCommands: string[];
+}
+
 // ===== Serveur distant (remote.rs = camelCase) =====
 
 export interface RemoteStatus {

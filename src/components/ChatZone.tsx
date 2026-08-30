@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { useApp } from "../context/AppContext";
 import { useSessions } from "../context/SessionsContext";
+import PluginSlot from "./PluginSlot";
 import SessionTabs from "./SessionTabs";
 
 export default function ChatZone(): React.JSX.Element {
@@ -121,6 +122,7 @@ export default function ChatZone(): React.JSX.Element {
           >
             Exporter
           </button>
+          <PluginSlot point="chat-toolbar" />
         </div>
       )}
 

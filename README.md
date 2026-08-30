@@ -24,6 +24,38 @@ depuis la variable d'environnement correspondante, sinon depuis la
 configuration applicative (fichier `0600`, hors dépôt). Aucune clé n'entre
 jamais dans le dépôt ni dans le coffre.
 
+## Ce que fait le harness
+
+**Sessions multiples.** Plusieurs conversations persistantes, qui peuvent
+répondre en même temps. Chacune porte son agent, son fournisseur et son
+modèle. Une session peut être exportée en note Markdown dans `brouillon/` du
+coffre, prête pour une revue.
+
+**Équipes d'agents.** Plusieurs agents du coffre travaillent sur un objectif
+commun, chacun avec **son propre modèle** — un rôle bavard en local, un rôle
+décisif sur un modèle plus capable. Tour de rôle, ou superviseur qui
+distribue la parole. Le nombre de tours est borné.
+
+**Plans.** Un objectif découpé en étapes assignées, avec dépendances. Les
+étapes indépendantes s'exécutent **en parallèle** ; chacune ne reçoit que
+l'objectif et le résultat de ses dépendances. Un plan interrompu reprend là où
+il s'est arrêté. Un modèle peut proposer le découpage, qui est relu avant
+exécution.
+
+**Sessions à distance.** Cette instance peut exposer son harness à un autre
+poste : sessions, équipes et plans s'exécutent sur l'hôte, avec le même flux
+d'événements. Jeton obligatoire, écoute locale par défaut, liste blanche de
+commandes — la configuration de l'hôte et ses clés d'API ne sont pas exposées.
+
+**Extensions.** Deux niveaux. Un *patch* décrit un thème et une disposition,
+sans exécuter de code ; ses valeurs CSS sont validées. Un *plugin* exécute du
+JavaScript à des points d'accroche déclarés — voir `exemples/plugin-compteur/`.
+Un plugin est inactif à l'installation, et toute modification de son fichier le
+redésactive jusqu'à réapprobation.
+
+> Les permissions d'un plugin bornent l'API qu'ObsiaUi lui tend, **pas** ce que
+> son code peut atteindre dans la page. N'activez que ce que vous avez lu.
+
 ## Développement
 
 ```bash

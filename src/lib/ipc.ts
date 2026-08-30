@@ -31,7 +31,11 @@ import type {
   PlanSavePayload,
   PlanTokenEvent,
   PlanUpdateEvent,
+  InstalledPlugin,
+  LoadedPlugin,
+  PatchSavePayload,
   RemoteStatus,
+  UiPatch,
   RuntimeScan,
   Session,
   SessionCreatePayload,
@@ -168,6 +172,43 @@ export const teamDelete = (teamId: string): Promise<void> =>
 /** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
 export const teamRun = (sessionId: string, objective: string): Promise<void> =>
   call<void>("team_run", { sessionId, objective });
+
+// ===== Patches d'interface et plugins =====
+//
+// Toujours en local : ils modifient CETTE fenêtre. Un hôte distant fournit le
+// travail, pas l'apparence du poste client.
+
+export const patchesList = (): Promise<UiPatch[]> =>
+  callLocal<UiPatch[]>("patches_list");
+
+export const patchSave = (payload: PatchSavePayload): Promise<UiPatch> =>
+  callLocal<UiPatch>("patch_save", { payload });
+
+export const patchDelete = (patchId: string): Promise<void> =>
+  callLocal<void>("patch_delete", { patchId });
+
+/** Active ou désactive un patch ; renvoie le CSS cumulé qui en résulte. */
+export const patchToggle = (patchId: string, enabled: boolean): Promise<string> =>
+  callLocal<string>("patch_toggle", { patchId, enabled });
+
+/** CSS cumulé des patches actifs, à poser sur `:root`. */
+export const patchCss = (): Promise<string> => callLocal<string>("patch_css");
+
+export const pluginsList = (): Promise<InstalledPlugin[]> =>
+  callLocal<InstalledPlugin[]>("plugins_list");
+
+/** Plugins actifs, avec leur code et les commandes qui leur sont ouvertes. */
+export const pluginsLoad = (): Promise<LoadedPlugin[]> =>
+  callLocal<LoadedPlugin[]>("plugins_load");
+
+export const pluginsDir = (): Promise<string> => callLocal<string>("plugins_dir");
+
+/** Active un plugin en approuvant le code présent sur disque. */
+export const pluginEnable = (pluginId: string): Promise<InstalledPlugin> =>
+  callLocal<InstalledPlugin>("plugin_enable", { pluginId });
+
+export const pluginDisable = (pluginId: string): Promise<void> =>
+  callLocal<void>("plugin_disable", { pluginId });
 
 // ===== Serveur distant =====
 //

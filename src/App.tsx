@@ -3,6 +3,7 @@ import AgentSelector from "./components/AgentSelector";
 import ChatZone from "./components/ChatZone";
 import ControlPanel from "./components/ControlPanel";
 import FileManager from "./components/FileManager";
+import PluginSlot from "./components/PluginSlot";
 import ProviderSelector from "./components/ProviderSelector";
 import { AppProvider } from "./context/AppContext";
 import { SessionsProvider } from "./context/SessionsContext";
@@ -44,6 +45,7 @@ export default function App() {
         )}
       </div>
       </div>
+      <PluginSlot point="status-bar" />
       </SessionsProvider>
     </AppProvider>
   );

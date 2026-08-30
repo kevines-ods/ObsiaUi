@@ -1,0 +1,9 @@
+{
+  "id": "compteur-sessions",
+  "name": "Compteur de sessions",
+  "version": "1.0.0",
+  "description": "Affiche le nombre de sessions ouvertes dans le bandeau de pied.",
+  "entry": "index.js",
+  "mount": ["status-bar"],
+  "permissions": ["sessions"]
+}
