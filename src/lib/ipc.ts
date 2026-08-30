@@ -23,6 +23,11 @@ import type {
   ModelInfo,
   ProviderHealth,
   ProviderInfo,
+  Plan,
+  PlanDraftPayload,
+  PlanSavePayload,
+  PlanTokenEvent,
+  PlanUpdateEvent,
   RuntimeScan,
   Session,
   SessionCreatePayload,
@@ -159,6 +164,36 @@ export const teamDelete = (teamId: string): Promise<void> =>
 /** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
 export const teamRun = (sessionId: string, objective: string): Promise<void> =>
   invoke<void>("team_run", { sessionId, objective });
+
+// ===== Plans =====
+
+export const plansList = (): Promise<Plan[]> => invoke<Plan[]>("plans_list");
+
+export const planSave = (payload: PlanSavePayload): Promise<Plan> =>
+  invoke<Plan>("plan_save", { payload });
+
+export const planDelete = (planId: string): Promise<void> =>
+  invoke<void>("plan_delete", { planId });
+
+/** Fait décomposer un objectif par un modèle. Le plan n'est pas enregistré. */
+export const planDraft = (payload: PlanDraftPayload): Promise<Plan> =>
+  invoke<Plan>("plan_draft", { payload });
+
+/** Exécute le plan ; l'avancement arrive via `plan:update`. */
+export const planRun = (planId: string): Promise<Plan> =>
+  invoke<Plan>("plan_run", { planId });
+
+export const planCancel = (planId: string): Promise<boolean> =>
+  invoke<boolean>("plan_cancel", { planId });
+
+export const planStream = {
+  /** Fragment produit par une étape en cours. */
+  onToken: (handler: (e: PlanTokenEvent) => void) =>
+    listen<PlanTokenEvent>("plan:token", (e) => handler(e.payload)),
+  /** Nouvel état du plan après chaque vague d'étapes. */
+  onUpdate: (handler: (e: PlanUpdateEvent) => void) =>
+    listen<PlanUpdateEvent>("plan:update", (e) => handler(e.payload)),
+};
 
 /** Écoute un événement de stream et retourne une fonction de désabonnement. */
 export function listenEvent<T>(

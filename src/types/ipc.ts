@@ -263,6 +263,63 @@ export interface SessionTurnEvent {
   turn: number;
 }
 
+// ===== Plans (plan.rs = camelCase) =====
+
+/** Sérialisés en kebab-case côté Rust. */
+export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+export type PlanStatus = "draft" | "running" | "done" | "incomplete" | "cancelled";
+
+export interface PlanStep {
+  /** Identifiant court, unique dans le plan ; cible des dépendances. */
+  id: string;
+  title: string;
+  instruction: string;
+  agent: string;
+  provider?: string | null;
+  model: string;
+  dependsOn: string[];
+  status: StepStatus;
+  result?: string | null;
+  error?: string | null;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+}
+
+export interface Plan {
+  id: string;
+  title: string;
+  objective: string;
+  steps: PlanStep[];
+  status: PlanStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PlanSavePayload {
+  id?: string | null;
+  title: string;
+  objective: string;
+  steps: PlanStep[];
+}
+
+export interface PlanDraftPayload {
+  objective: string;
+  /** Agent affecté aux étapes dont l'agent proposé est inconnu. */
+  agent: string;
+  provider?: string | null;
+  model: string;
+}
+
+export interface PlanTokenEvent {
+  planId: string;
+  stepId: string;
+  token: string;
+}
+
+export interface PlanUpdateEvent {
+  plan: Plan;
+}
+
 // ===== Coffre (vault.rs = camelCase) =====
 
 export interface VaultEntry {

@@ -166,3 +166,17 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .team-member select,.team-member input{min-width:0;flex:1;font-size:11px}
 .team-actions{display:flex;gap:6px}
 .chat-speaker{font-size:11px;color:var(--muted)}
+
+/* Plans */
+.plan-row{padding:5px 0;border-bottom:1px dotted var(--border)}
+.plan-head{display:flex;align-items:center;gap:6px}
+.plan-head .team-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.step-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.step-chip{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);color:var(--muted);cursor:help}
+.step-pending{opacity:.65}
+.step-running{border-color:var(--ok,#2a2);color:var(--ok,#2a2);animation:session-pulse 1.2s ease-in-out infinite}
+.step-done{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.step-failed{background:var(--err-bg);color:var(--err);border-color:var(--err)}
+.step-skipped{text-decoration:line-through;opacity:.55}
+.plan-draft{border:1px dashed var(--border);border-radius:6px;padding:6px;display:flex;flex-direction:column;gap:2px}
+@media (prefers-reduced-motion: reduce){.step-running{animation:none}}

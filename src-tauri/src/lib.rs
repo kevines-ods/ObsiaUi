@@ -1,7 +1,8 @@
 use crate::commands::{
     agent_read, agents_list, chat_send, chat_stream, config_get, config_set, init_model_registry,
-    init_provider_pool, init_provider_registry, init_session_manager, init_team_store, init_vault,
-    llm_health_check, models_list, provider_test, providers_list, runtimes_detect,
+    init_plan_manager, init_provider_pool, init_provider_registry, init_session_manager,
+    init_team_store, init_vault, llm_health_check, models_list, plan_cancel, plan_delete,
+    plan_draft, plan_run, plan_save, plans_list, provider_test, providers_list, runtimes_detect,
     scan_local_models, session_cancel, session_create, session_delete, session_export, session_get,
     session_rename, session_send, sessions_list, team_delete, team_run, team_save, teams_list,
     vault_list, vault_path, vault_read, vault_write,
@@ -15,6 +16,7 @@ mod commands;
 mod config;
 mod discovery;
 mod llm;
+mod plan;
 mod session;
 mod store;
 mod team;
@@ -60,6 +62,9 @@ pub fn run() {
             // Équipes : notion du harness, assemblées depuis les agents du coffre
             app.manage(init_team_store(app));
 
+            // Plans : étapes assignées, exécutées en parallèle quand elles le peuvent
+            app.manage(init_plan_manager(app));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -88,6 +93,13 @@ pub fn run() {
             team_save,
             team_delete,
             team_run,
+            // Plans
+            plans_list,
+            plan_save,
+            plan_delete,
+            plan_draft,
+            plan_run,
+            plan_cancel,
             // Config
             config_get,
             config_set,

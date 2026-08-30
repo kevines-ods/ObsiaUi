@@ -9,6 +9,8 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - Plans : `plans_list`, `plan_save`, `plan_delete`, `plan_draft`,
+//!   `plan_run`, `plan_cancel`
 //! - Sessions : `sessions_list`, `session_create`, `session_get`,
 //!   `session_rename`, `session_delete`, `session_send`, `session_cancel`,
 //!   `session_export`
@@ -28,6 +30,7 @@ use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
 use crate::llm::streaming::StreamingManager;
+use crate::plan::{self, Plan, PlanManager, PlanStatus, PlanStep};
 use crate::session::{Session, SessionManager, SessionMessage, SessionMeta};
 use crate::team::{self, Team, TeamMember, TeamStore, TeamStrategy};
 use crate::vault::{VaultEntry, VaultState};
@@ -897,16 +900,17 @@ pub struct SessionMessageEvent {
     pub meta: SessionMeta,
 }
 
-/// Consomme un flux de jetons en diffusant `session:token`.
+/// Consomme un flux de jetons, chaque fragment étant remis à `emit`.
 ///
-/// Renvoie `(texte accumulé, tour annulé, erreur éventuelle)`. Partagé par le
-/// chat à un agent et par l'orchestration d'équipe — une seule implémentation
-/// de l'annulation, du repli sur la réponse finale et de la fermeture du flux.
-async fn consommer_flux(
-    app: &AppHandle,
-    session_id: &str,
+/// Renvoie `(texte accumulé, interrompu, erreur éventuelle)`. Partagé par le
+/// chat à un agent, l'orchestration d'équipe et l'exécution de plans — une
+/// seule implémentation de l'annulation, du repli sur la réponse finale et de
+/// la fermeture du flux. Seule la destination des jetons change, d'où le
+/// paramètre `emit` plutôt qu'un nom d'événement figé.
+async fn consommer_flux<F: Fn(String)>(
     mut stream: crate::llm::provider::TokenStream,
     annule: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    emit: F,
 ) -> (String, bool, Option<String>) {
     let mut texte = String::new();
     let mut cancelled = false;
@@ -920,13 +924,7 @@ async fn consommer_flux(
         match event {
             TokenEvent::Token(token) => {
                 texte.push_str(&token);
-                let _ = app.emit(
-                    "session:token",
-                    SessionTokenEvent {
-                        session_id: session_id.to_string(),
-                        token,
-                    },
-                );
+                emit(token);
             }
             TokenEvent::Done(response) => {
                 // La réponse finale fait foi : elle porte le texte complet, y
@@ -1021,7 +1019,16 @@ pub async fn session_send(
         }
     };
 
-    let (texte, cancelled, echec) = consommer_flux(&app, &session_id, stream, &annule).await;
+    let (texte, cancelled, echec) = consommer_flux(stream, &annule, |token| {
+        let _ = app.emit(
+            "session:token",
+            SessionTokenEvent {
+                session_id: session_id.clone(),
+                token,
+            },
+        );
+    })
+    .await;
     sessions.finish(&session_id).await;
 
     if let Some(e) = echec {
@@ -1279,7 +1286,16 @@ pub async fn team_run(
             }
         };
 
-        let (texte, stoppe, echec) = consommer_flux(&app, &session_id, stream, &annule).await;
+        let (texte, stoppe, echec) = consommer_flux(stream, &annule, |token| {
+            let _ = app.emit(
+                "session:token",
+                SessionTokenEvent {
+                    session_id: session_id.clone(),
+                    token,
+                },
+            );
+        })
+        .await;
         if let Some(e) = echec {
             sessions.finish(&session_id).await;
             let _ = app.emit(
@@ -1336,4 +1352,325 @@ pub async fn team_run(
         },
     );
     Ok(())
+}
+
+// ===== Commandes — Plans =====
+
+pub type PlanManagerState = Arc<PlanManager>;
+
+/// Création ou mise à jour d'un plan.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanSavePayload {
+    /// `None` = création.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    pub objective: String,
+    pub steps: Vec<PlanStep>,
+}
+
+/// Demande de décomposition d'un objectif par un modèle.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanDraftPayload {
+    pub objective: String,
+    /// Agent affecté aux étapes dont l'agent proposé est inconnu.
+    pub agent: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+    pub model: String,
+}
+
+/// Fragment produit par une étape en cours.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTokenEvent {
+    pub plan_id: String,
+    pub step_id: String,
+    pub token: String,
+}
+
+/// Nouvel état du plan après chaque vague d'étapes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanUpdateEvent {
+    pub plan: Plan,
+}
+
+pub fn init_plan_manager(app: &tauri::App) -> PlanManagerState {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("plans");
+    Arc::new(PlanManager::new(dir))
+}
+
+#[tauri::command]
+#[instrument(skip(plans))]
+pub fn plans_list(plans: State<'_, PlanManagerState>) -> Result<Vec<Plan>, String> {
+    Ok(plans.list())
+}
+
+#[tauri::command]
+#[instrument(skip(plans))]
+pub async fn plan_save(
+    plans: State<'_, PlanManagerState>,
+    payload: PlanSavePayload,
+) -> Result<Plan, String> {
+    let mut plan = match &payload.id {
+        Some(id) => plans.load(id)?,
+        None => Plan::new(payload.title.clone(), payload.objective.clone(), Vec::new()),
+    };
+    plan.title = payload.title;
+    plan.objective = payload.objective;
+    plan.steps = payload.steps;
+    plan.refresh_status();
+    plan.validate()?;
+    plans.save(&plan).await?;
+    Ok(plan)
+}
+
+#[tauri::command]
+#[instrument(skip(plans))]
+pub async fn plan_delete(
+    plans: State<'_, PlanManagerState>,
+    plan_id: String,
+) -> Result<(), String> {
+    plans.delete(&plan_id).await
+}
+
+#[tauri::command]
+#[instrument(skip(plans))]
+pub async fn plan_cancel(
+    plans: State<'_, PlanManagerState>,
+    plan_id: String,
+) -> Result<bool, String> {
+    Ok(plans.cancel(&plan_id).await)
+}
+
+/// Fait décomposer un objectif en étapes par un modèle.
+///
+/// Le plan renvoyé n'est **pas** enregistré : il est proposé à la revue.
+/// Un découpage produit par un modèle mérite d'être relu avant d'engager le
+/// budget de son exécution.
+#[tauri::command]
+#[instrument(skip(pool, vault))]
+pub async fn plan_draft(
+    pool: State<'_, ProviderPoolState>,
+    vault: State<'_, VaultState>,
+    payload: PlanDraftPayload,
+) -> Result<Plan, String> {
+    let objectif = payload.objective.trim().to_string();
+    if objectif.is_empty() {
+        return Err("objectif requis".into());
+    }
+    let agents: Vec<String> = vault
+        .agents_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+
+    let req = ChatRequest {
+        model: payload.model.clone(),
+        messages: vec![ChatMessage {
+            role: "user".into(),
+            content: plan::prompt_decomposition(&objectif, &agents),
+            name: None,
+        }],
+        temperature: Some(0.2),
+        max_tokens: None,
+        stream: false,
+        metadata: HashMap::new(),
+    };
+    let reponse = match &payload.provider {
+        Some(pid) => pool.chat_with(pid, req).await,
+        None => pool.chat_with_fallback(req).await,
+    }
+    .map_err(|e| e.to_string())?;
+
+    let texte = reponse
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+    let json =
+        plan::extraire_json(&texte).ok_or("le modèle n'a pas produit de JSON exploitable")?;
+    let ebauche: plan::Ebauche =
+        serde_json::from_str(json).map_err(|e| format!("découpage illisible : {e}"))?;
+
+    plan::plan_depuis_ebauche(
+        ebauche,
+        &objectif,
+        &agents,
+        &payload.agent,
+        payload.provider,
+        &payload.model,
+    )
+}
+
+/// Exécute un plan.
+///
+/// Les étapes dont les dépendances sont satisfaites partent **ensemble** :
+/// deux branches indépendantes n'ont aucune raison de s'attendre. Chaque
+/// étape ne reçoit que l'objectif et le résultat de ses dépendances, ce qui
+/// garde les prompts courts et évite qu'une branche en pollue une autre.
+///
+/// Les étapes déjà abouties ne sont pas refaites : relancer un plan interrompu
+/// reprend là où il s'était arrêté.
+#[tauri::command]
+#[instrument(skip(app, plans, pool, vault))]
+pub async fn plan_run(
+    app: AppHandle,
+    plans: State<'_, PlanManagerState>,
+    pool: State<'_, ProviderPoolState>,
+    vault: State<'_, VaultState>,
+    plan_id: String,
+) -> Result<Plan, String> {
+    let mut plan = plans.load(&plan_id)?;
+    plan.validate()?;
+    plan.reset_unfinished();
+    plan.refresh_status();
+
+    let annule = plans.begin(&plan_id).await;
+    let mut interrompu = false;
+
+    loop {
+        if annule.load(std::sync::atomic::Ordering::SeqCst) {
+            interrompu = true;
+            break;
+        }
+        // Les contextes sont calculés maintenant : les étapes de la vague
+        // s'exécutent en parallèle et ne doivent pas emprunter le plan.
+        let vague: Vec<(PlanStep, String)> = plan
+            .ready_steps()
+            .into_iter()
+            .map(|s| (s.clone(), plan.context_for(s)))
+            .collect();
+        if vague.is_empty() {
+            break;
+        }
+        for (etape, _) in &vague {
+            plan.mark_running(&etape.id);
+        }
+        plans.save(&plan).await?;
+        let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+
+        let taches = vague.into_iter().map(|(etape, contexte)| {
+            let app = &app;
+            let pool = &pool;
+            let vault = &vault;
+            let annule = &annule;
+            let plan_id = plan_id.clone();
+            async move {
+                let resultat =
+                    executer_etape(app, pool, vault, &plan_id, &etape, &contexte, annule).await;
+                (etape.id.clone(), resultat)
+            }
+        });
+        let resultats = futures::future::join_all(taches).await;
+
+        for (id, resultat) in resultats {
+            match resultat {
+                Ok(Some(texte)) => plan.mark_done(&id, texte),
+                // `None` = interrompu avant d'aboutir : l'étape est laissée
+                // en attente pour être reprise telle quelle.
+                Ok(None) => interrompu = true,
+                Err(e) => {
+                    warn!(etape = %id, %e, "étape en échec");
+                    plan.mark_failed(&id, e);
+                }
+            }
+        }
+        plan.refresh_status();
+        plans.save(&plan).await?;
+        let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+
+        if interrompu {
+            break;
+        }
+    }
+
+    if interrompu {
+        plan.reset_unfinished();
+        plan.status = PlanStatus::Cancelled;
+    } else {
+        plan.refresh_status();
+    }
+    plans.save(&plan).await?;
+    plans.finish(&plan_id).await;
+    let _ = app.emit("plan:update", PlanUpdateEvent { plan: plan.clone() });
+    let (faites, total) = plan.progress();
+    info!(plan = %plan.title, faites, total, "exécution du plan terminée");
+    Ok(plan)
+}
+
+/// Exécute une étape. `Ok(None)` signale une interruption avant aboutissement.
+async fn executer_etape(
+    app: &AppHandle,
+    pool: &ProviderPoolState,
+    vault: &VaultState,
+    plan_id: &str,
+    etape: &PlanStep,
+    contexte: &str,
+    annule: &Arc<std::sync::atomic::AtomicBool>,
+) -> Result<Option<String>, String> {
+    let corps = match vault.agent_read(&format!("{}.md", etape.agent)) {
+        Ok(doc) => doc.content,
+        Err(e) => {
+            warn!(agent = %etape.agent, %e, "agent illisible, étape sans prompt système");
+            String::new()
+        }
+    };
+    let req = ChatRequest {
+        model: etape.model.clone(),
+        messages: vec![
+            ChatMessage {
+                role: "system".into(),
+                content: corps,
+                name: None,
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: contexte.to_string(),
+                name: None,
+            },
+        ],
+        temperature: None,
+        max_tokens: None,
+        stream: true,
+        metadata: HashMap::new(),
+    };
+
+    let stream = match &etape.provider {
+        Some(pid) => pool.chat_stream_with(pid, req).await,
+        None => pool.chat_stream_with_fallback(req).await,
+    }
+    .map_err(|e| e.to_string())?;
+
+    let (texte, stoppe, echec) = consommer_flux(stream, annule, |token| {
+        let _ = app.emit(
+            "plan:token",
+            PlanTokenEvent {
+                plan_id: plan_id.to_string(),
+                step_id: etape.id.clone(),
+                token,
+            },
+        );
+    })
+    .await;
+
+    if let Some(e) = echec {
+        return Err(e);
+    }
+    if stoppe {
+        return Ok(None);
+    }
+    if texte.trim().is_empty() {
+        return Err("l'étape n'a produit aucun résultat".into());
+    }
+    Ok(Some(texte))
 }
