@@ -1026,6 +1026,23 @@ textarea {
   display: flex;
   align-items: center;
   gap: 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 1px 7px 1px 5px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.graph-legend-item:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+/* Un dossier masqué reste lisible dans la légende : c'est là qu'on le
+   retrouve pour le remontrer. */
+.graph-legend-item.masque {
+  opacity: 0.45;
+  text-decoration: line-through;
 }
 .graph-swatch {
   width: 9px;
@@ -1037,6 +1054,52 @@ textarea {
   background: none;
   border: 1.5px solid var(--graph-other);
 }
+/* Ligne de filtres. Filtrer change l'ensemble affiché et refait le
+   placement ; chercher se contente de mettre en avant. */
+.graph-filtres {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.graph-recherche {
+  flex: 1;
+  min-width: 130px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--input-bg, var(--panel-bg));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.graph-select {
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.graph-case {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.graph-focus {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.graph-focus strong {
+  color: var(--text);
+}
+
 .graph-broken {
   list-style: none;
   max-height: 120px;
@@ -1047,6 +1110,14 @@ textarea {
   flex: none;
 }
 
+/* La carte des liens se superpose au dessin : dans un panneau étroit, la
+   placer au-dessous ne laisserait plus de place au graphe. */
+.graph-scene {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .graph-svg {
   flex: 1;
   min-height: 0;
@@ -1068,6 +1139,15 @@ textarea {
 .graph-node {
   cursor: pointer;
 }
+/* L'anneau de focus par défaut encadre toute la boîte du groupe, étiquette
+   comprise : un rectangle noir en travers du dessin. Celui-ci suit le nœud. */
+.graph-node:focus {
+  outline: none;
+}
+.graph-node:focus-visible .graph-dot {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
 .graph-node.muted {
   opacity: 0.25;
 }
@@ -1084,6 +1164,16 @@ textarea {
 .graph-node:hover .graph-dot {
   stroke: var(--text);
 }
+/* La sélection est marquée par un anneau, pas par une couleur : la teinte
+   d'un nœud dit son dossier et ne doit pas dire autre chose en même temps. */
+.graph-halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.graph-node.choisi {
+  opacity: 1;
+}
 /* Le texte porte l'encre, jamais la couleur de la série. */
 /* La taille est posée par le rendu, en unités du repère, pour rester
    constante à l'écran quel que soit le zoom. */
@@ -1094,6 +1184,49 @@ textarea {
   paint-order: stroke;
   stroke: var(--bg);
   stroke-linejoin: round;
+}
+
+/* Liens de la note choisie. C'est la réponse à « je veux voir mes liens » :
+   ils sont listés sur le coffre entier, pas seulement sur ce qui est
+   affiché — un lien masqué par un filtre reste un lien. */
+.graph-carte {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: min(260px, 70%);
+  max-height: 78%;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  font-size: 11.5px;
+}
+.graph-carte-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.graph-carte .runtime-meta {
+  overflow-wrap: anywhere;
+}
+.graph-liens {
+  margin-top: 6px;
+}
+.graph-liens ul {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+.graph-liens li {
+  padding: 1px 0;
+}
+.graph-liens .link {
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 /* Graphe en plein écran : un panneau latéral est trop étroit pour lire une

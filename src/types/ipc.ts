@@ -417,6 +417,12 @@ export type IntendantAction =
   | { action: "planification"; title: string; objective: string; steps: PlanStep[] }
   | { action: "patch"; name: string; description: string; theme: Record<string, string> }
   | { action: "patch-actif"; patchId: string; enabled: boolean }
+  /**
+   * Rédige une déclaration MCP. Elle part dans `brouillon/IA/MCP/`, jamais
+   * dans `IA/MCP/` : un outil donne des accès qui se relisent avant d'entrer
+   * dans le coffre.
+   */
+  | { action: "mcp"; name: string; description: string; body: string }
   | { action: "distant"; enabled: boolean };
 
 /** Actions proposées, avec leur description en clair. */

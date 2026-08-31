@@ -56,20 +56,56 @@ redésactive jusqu'à réapprobation.
 > Les permissions d'un plugin bornent l'API qu'ObsiaUi lui tend, **pas** ce que
 > son code peut atteindre dans la page. N'activez que ce que vous avez lu.
 
-## Développement
+## Lancer
+
+Il faut Rust (`rustup`), Node 20 ou plus, et les bibliothèques GTK/WebKit du
+système.
 
 ```bash
-# Dépendances système (Debian/Ubuntu)
+# Dépendances système — Debian, Ubuntu
 sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
                  librsvg2-dev libssl-dev build-essential pkg-config
 
-npm --prefix src ci
-cargo tauri dev
+# Dépendances système — Fedora
+sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel \
+                 librsvg2-devel openssl-devel @development-tools
+
+# Dépendances système — Arch
+sudo pacman -S webkit2gtk-4.1 gtk3 libsoup3 librsvg openssl base-devel
 ```
+
+Puis, depuis la racine du dépôt :
+
+```bash
+npm --prefix src ci
+npm --prefix src run build
+cargo run --release
+```
+
+La fenêtre s'ouvre. Le premier `cargo run` compile tout et prend plusieurs
+minutes ; les suivants sont immédiats. Aucun outil supplémentaire n'est
+nécessaire : l'interface compilée est embarquée dans le binaire.
 
 Le coffre est cherché dans cet ordre : `OBSIA_VAULT_PATH`, le chemin donné dans
 la configuration, puis les emplacements usuels — dont `../OBSIA/obsia_vault`
-quand les deux dépôts sont clonés côte à côte.
+quand les deux dépôts sont clonés côte à côte. Pour désigner un autre
+emplacement :
+
+```bash
+OBSIA_VAULT_PATH=/chemin/vers/mon/coffre cargo run --release
+```
+
+## Développement
+
+Le rechargement à chaud et la fabrication des paquets passent par le CLI
+Tauri, qui n'est pas une dépendance du dépôt et s'installe une fois :
+
+```bash
+cargo install tauri-cli --locked --version "^2.0"
+
+cargo tauri dev     # rechargement à chaud du front
+cargo tauri build   # paquets Linux dans target/release/bundle/
+```
 
 ## Vérifications
 

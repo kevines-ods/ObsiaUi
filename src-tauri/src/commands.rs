@@ -10,6 +10,7 @@
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
 //! - Intendant : `intendant_prompt`, `intendant_send`, `intendant_apply`
+//!   (la seule action qui écrit, `mcp`, vise `brouillon/`)
 //! - Coffre : `vault_graph` (liens et étiquettes), `vault_open_external`
 //! - MCP : `mcp_list`, `mcp_draft` (déclaration seulement — ObsiaUi ne
 //!   se connecte pas aux serveurs MCP)
@@ -2218,6 +2219,7 @@ pub async fn intendant_prompt(
     Ok(intendant::prompt(
         &agents_connus(&vault),
         &modeles_connus(&registry).await,
+        &mcp_connus(&vault),
     ))
 }
 
@@ -2227,6 +2229,17 @@ fn agents_connus(vault: &VaultState) -> Vec<String> {
         .unwrap_or_default()
         .into_iter()
         .map(|a| a.name)
+        .collect()
+}
+
+/// Outils MCP déjà déclarés : l'intendant doit savoir ce qui existe pour ne
+/// pas proposer de redéclarer un outil que le coffre possède.
+fn mcp_connus(vault: &VaultState) -> Vec<String> {
+    vault
+        .mcp_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.name)
         .collect()
 }
 
@@ -2261,7 +2274,11 @@ pub async fn intendant_send(
     session_id: String,
     content: String,
 ) -> Result<Option<intendant::Proposition>, String> {
-    let prompt = intendant::prompt(&agents_connus(&vault), &modeles_connus(&registry).await);
+    let prompt = intendant::prompt(
+        &agents_connus(&vault),
+        &modeles_connus(&registry).await,
+        &mcp_connus(&vault),
+    );
     let texte = session_send_impl(
         bus.inner(),
         sessions.inner(),
@@ -2451,6 +2468,16 @@ async fn appliquer(
             // La fenêtre applique le CSS cumulé sans avoir à redemander.
             bus.emit("patch:css", plugins.css_actif());
             Ok(())
+        }
+        Action::Mcp {
+            name,
+            description,
+            body,
+        } => {
+            // `mcp_draft` vise `brouillon/IA/MCP/` et la sandbox du coffre
+            // refuse tout le reste : l'intendant ne peut pas écrire ailleurs
+            // même s'il le demandait.
+            vault.mcp_draft(name, description, body).map(|_| ())
         }
         Action::Distant { enabled } => {
             if !*enabled {

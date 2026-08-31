@@ -75,25 +75,37 @@ export function placer(
    */
   ratio = 1,
 ): NoeudPlace[] {
-  const n = noeuds.length;
   const hauteur = COTE / Math.max(0.2, Math.min(5, ratio));
-  if (n === 0) return [];
-  if (n === 1) return [{ id: noeuds[0].id, x: COTE / 2, y: hauteur / 2 }];
+  if (noeuds.length === 0) return [];
+  if (noeuds.length === 1) {
+    return [{ id: noeuds[0].id, x: COTE / 2, y: hauteur / 2 }];
+  }
 
-  const pos = noeuds.map((noeud, i) => ({
-    id: noeud.id,
-    ...positionInitiale(noeud.id, i, n, hauteur),
-  }));
-  const index = new Map(pos.map((p, i) => [p.id, i]));
-
-  // Les nœuds sans lien ne sont retenus que par le centrage : sans rappel
-  // plus ferme, ils dérivent au loin et étirent le cadre, ce qui réduit tout
-  // le reste du graphe.
+  // Les notes sans aucun lien sortent de la simulation. Le rappel vers le
+  // centre n'est pas borné par la température alors que la répulsion l'est :
+  // en fin de course elles finissaient toutes empilées au même point, noms
+  // superposés et illisibles. Elles vont sur un anneau autour du reste, ce
+  // qui est aussi leur place logique — une orpheline n'appartient à aucun
+  // groupe.
   const relie = new Set<string>();
   for (const a of aretes) {
     relie.add(a.from);
     relie.add(a.to);
   }
+  const connectes = noeuds.filter((x) => relie.has(x.id));
+  const isoles = noeuds.filter((x) => !relie.has(x.id));
+
+  // Un coffre sans aucun lien : tout est orphelin, l'anneau porte tout.
+  if (connectes.length === 0) {
+    return anneau(isoles, COTE / 2, hauteur / 2, COTE * 0.4, hauteur * 0.4);
+  }
+
+  const n = connectes.length;
+  const pos = connectes.map((noeud, i) => ({
+    id: noeud.id,
+    ...positionInitiale(noeud.id, i, n, hauteur),
+  }));
+  const index = new Map(pos.map((p, i) => [p.id, i]));
 
   // Distance idéale entre deux nœuds : la surface disponible par nœud.
   const k = Math.sqrt((COTE * hauteur) / n);
@@ -152,16 +164,52 @@ export function placer(
       const pas_i = Math.min(d, temperature);
       pos[i].x += (dx[i] / d) * pas_i;
       pos[i].y += (dy[i] / d) * pas_i;
-      // Une légère attraction vers le centre garde les composantes isolées
+      // Une légère attraction vers le centre garde les composantes détachées
       // dans le cadre, au lieu de les laisser dériver à l'infini.
-      const rappel = relie.has(pos[i].id) ? 0.01 : 0.06;
-      pos[i].x += (COTE / 2 - pos[i].x) * rappel;
-      pos[i].y += (hauteur / 2 - pos[i].y) * rappel;
+      pos[i].x += (COTE / 2 - pos[i].x) * 0.01;
+      pos[i].y += (hauteur / 2 - pos[i].y) * 0.01;
     }
     temperature *= 0.95;
   }
 
-  return pos;
+  if (isoles.length === 0) return pos;
+
+  // L'anneau entoure ce que la simulation a produit, avec une marge : les
+  // orphelines bordent le graphe sans venir se mêler à ses groupes. Il épouse
+  // la forme du nuage plutôt que d'être circulaire — un anneau rond autour
+  // d'un nuage large le rendrait carré, et tout le travail d'ajustement au
+  // cadre serait perdu.
+  const xs = pos.map((p) => p.x);
+  const ys = pos.map((p) => p.y);
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const rx = Math.max(Math.max(...xs) - cx, COTE / 8) * 1.25;
+  const ry = Math.max(Math.max(...ys) - cy, hauteur / 8) * 1.25;
+  return [...pos, ...anneau(isoles, cx, cy, rx, ry)];
+}
+
+/**
+ * Répartit des nœuds sur une ellipse, dans l'ordre donné.
+ *
+ * Déterministe comme le reste du placement : le même coffre redonne le même
+ * anneau, et l'on retrouve une orpheline là où on l'avait laissée.
+ */
+function anneau(
+  noeuds: Array<{ id: string }>,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+): NoeudPlace[] {
+  const n = noeuds.length;
+  return noeuds.map((noeud, i) => {
+    const angle = (i / n) * Math.PI * 2;
+    return {
+      id: noeud.id,
+      x: cx + Math.cos(angle) * rx,
+      y: cy + Math.sin(angle) * ry,
+    };
+  });
 }
 
 /**
@@ -172,15 +220,20 @@ export function placer(
  * vertical qui, dans une fenêtre large, se retrouve compressé au centre avec
  * d'immenses marges de part et d'autre.
  *
- * On étire donc légèrement le nuage vers la forme du cadre. La distorsion est
+ * On étire donc le nuage vers la forme du cadre. La distorsion est
  * **plafonnée** : dans un graphe de connaissance les distances ne portent
  * aucune grandeur — seule la topologie compte — mais au-delà d'un certain
  * étirement les groupes cessent d'être lisibles comme groupes.
+ *
+ * Le plafond a été relevé de 1,5 à 2,2 après mesure : un coffre en chaîne
+ * produit un nuage deux fois plus haut que large, et dans une fenêtre en
+ * 16/9 l'ancien plafond laissait plus de la moitié de la largeur vide. Les
+ * marques, elles, ne sont jamais déformées — seules les positions le sont.
  */
 export function ajusterAuCadre(
   places: NoeudPlace[],
   ratio: number,
-  maxDistorsion = 1.5,
+  maxDistorsion = 2.2,
 ): NoeudPlace[] {
   if (places.length < 3) return places;
   const xs = places.map((p) => p.x);

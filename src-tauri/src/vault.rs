@@ -49,6 +49,14 @@ pub struct VaultState {
 }
 
 impl VaultState {
+    /// Coffre pointant sur une racine donnée, pour les tests des autres
+    /// modules. La racine doit déjà être canonicalisée : la sandbox compare
+    /// des chemins canoniques.
+    #[cfg(test)]
+    pub(crate) fn pour_tests(root: PathBuf) -> Self {
+        Self { root }
+    }
+
     /// Résout et canonicalise la racine du coffre.
     ///
     /// Ordre de résolution :
