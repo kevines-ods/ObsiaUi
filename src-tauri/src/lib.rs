@@ -1,14 +1,14 @@
 use crate::commands::{
     agent_read, agents_list, chat_send, chat_stream, config_get, config_set, init_model_registry,
     init_plan_manager, init_plugin_store, init_provider_pool, init_provider_registry,
-    init_session_manager, init_team_store, init_vault, llm_health_check, models_list, patch_css,
-    patch_delete, patch_save, patch_toggle, patches_list, plan_cancel, plan_delete, plan_draft,
-    plan_run, plan_save, plans_list, plugin_disable, plugin_enable, plugins_dir, plugins_list,
-    plugins_load, provider_test, providers_list, remote_start, remote_status, remote_stop,
-    remote_token_read, remote_token_rotate, runtimes_detect, scan_local_models, session_cancel,
-    session_create, session_delete, session_export, session_get, session_rename, session_send,
-    sessions_list, team_delete, team_run, team_save, teams_list, vault_list, vault_path,
-    vault_read, vault_write,
+    init_session_manager, init_team_store, init_vault, llm_health_check, mcp_draft, mcp_list,
+    models_list, patch_css, patch_delete, patch_save, patch_toggle, patches_list, plan_cancel,
+    plan_delete, plan_draft, plan_run, plan_save, plans_list, plugin_disable, plugin_enable,
+    plugins_dir, plugins_list, plugins_load, provider_test, providers_list, remote_start,
+    remote_status, remote_stop, remote_token_read, remote_token_rotate, runtimes_detect,
+    scan_local_models, session_cancel, session_create, session_delete, session_export, session_get,
+    session_rename, session_send, sessions_list, team_delete, team_run, team_save, teams_list,
+    vault_list, vault_path, vault_read, vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;
@@ -20,6 +20,7 @@ mod config;
 mod discovery;
 mod event;
 mod llm;
+mod mcp;
 mod plan;
 mod plugin;
 mod remote;
@@ -223,6 +224,9 @@ pub fn run() {
             plugins_dir,
             plugin_enable,
             plugin_disable,
+            // MCP
+            mcp_list,
+            mcp_draft,
             // Config
             config_get,
             config_set,

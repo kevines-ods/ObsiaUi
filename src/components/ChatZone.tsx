@@ -1,6 +1,10 @@
 /**
  * Zone de conversation (centre) — rendu de la session active.
  *
+ * La liste des sessions vit dans le panneau latéral : au-delà de trois ou
+ * quatre, une rangée d'onglets tronquait les titres jusqu'à les rendre
+ * indistinguables.
+ *
  * L'historique et le prompt système sont tenus par le backend : cette zone
  * n'assemble plus de messages, elle envoie du texte et affiche ce qui revient.
  * Le prompt de l'agent est relu dans le coffre à chaque tour, donc modifier un
@@ -11,7 +15,6 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useApp } from "../context/AppContext";
 import { useSessions } from "../context/SessionsContext";
 import PluginSlot from "./PluginSlot";
-import SessionTabs from "./SessionTabs";
 
 export default function ChatZone(): React.JSX.Element {
   const { agents, selectedModel } = useApp();
@@ -77,7 +80,6 @@ export default function ChatZone(): React.JSX.Element {
   if (!loading && sessions.length === 0) {
     return (
       <div className="chat-zone">
-        <SessionTabs />
         <div className="empty-state">
           <p>Aucune session ouverte.</p>
           <p className="empty-hint">
@@ -100,8 +102,6 @@ export default function ChatZone(): React.JSX.Element {
 
   return (
     <div className="chat-zone">
-      <SessionTabs />
-
       {active && (
         <div className="chat-agent-bar">
           <span className="chat-agent-name">

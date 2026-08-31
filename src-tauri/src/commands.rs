@@ -9,6 +9,8 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - MCP : `mcp_list`, `mcp_draft` (déclaration seulement — ObsiaUi ne
+//!   se connecte pas aux serveurs MCP)
 //! - Interface : `patches_list`, `patch_save`, `patch_delete`,
 //!   `patch_toggle`, `patch_css`
 //! - Plugins : `plugins_list`, `plugins_load`, `plugins_dir`,
@@ -36,6 +38,7 @@ use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
+use crate::mcp::McpInfo;
 use crate::plan::{self, Plan, PlanManager, PlanStatus, PlanStep};
 use crate::plugin::{self, InstalledPlugin, LayoutPatch, PluginStore, UiPatch};
 use crate::remote::{self, Harness, RemoteState};
@@ -2115,4 +2118,29 @@ pub fn plugin_disable(
     plugin_id: String,
 ) -> Result<(), String> {
     plugins.disable(&plugin_id)
+}
+
+// ===== Commandes — Outils MCP =====
+
+/// Liste les outils MCP déclarés dans le coffre, avec les agents qui les
+/// utilisent.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn mcp_list(vault: State<'_, VaultStateArc>) -> Result<Vec<McpInfo>, String> {
+    vault.mcp_list()
+}
+
+/// Rédige une déclaration MCP dans `brouillon/` et renvoie son chemin.
+///
+/// Jamais directement dans `IA/MCP/` : donner à des agents un outil que
+/// personne n'a relu reviendrait à leur ouvrir un accès sans revue.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn mcp_draft(
+    vault: State<'_, VaultStateArc>,
+    name: String,
+    description: String,
+    body: String,
+) -> Result<String, String> {
+    vault.mcp_draft(&name, &description, &body)
 }

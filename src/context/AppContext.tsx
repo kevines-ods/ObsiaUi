@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import * as ipc from "../lib/ipc";
+import { appliquerTheme } from "../lib/theme";
 import { loadAgents } from "../lib/agents";
 import type { AgentInfo } from "../types/ipc";
 import type {
@@ -84,6 +85,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     try {
       const cfg = await ipc.configGet();
       setConfig(cfg);
+      appliquerTheme(cfg.theme);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     }
@@ -192,6 +194,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     try {
       const cfg = await ipc.configSet(patch);
       setConfig(cfg);
+      appliquerTheme(cfg.theme);
       return cfg;
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));

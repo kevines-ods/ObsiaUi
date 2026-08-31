@@ -95,6 +95,8 @@ export interface ChatRequestPayload {
 
 // ===== Config (config.rs = camelCase) =====
 
+export type Theme = "dark" | "light" | "system";
+
 export interface SetApiKey {
   providerId: string;
   apiKey: string;
@@ -106,6 +108,7 @@ export interface ConfigPatch {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  theme?: Theme | null;
   remoteEnabled?: boolean | null;
   remoteBind?: string | null;
 }
@@ -116,6 +119,8 @@ export interface ConfigView {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  /** `dark` (défaut), `light` ou `system`. */
+  theme: Theme;
   remoteEnabled: boolean;
   remoteBind?: string | null;
   /** Présence du jeton seulement ; sa valeur se lit par `remoteTokenRead`. */
@@ -386,6 +391,17 @@ export interface LoadedPlugin extends InstalledPlugin {
   source: string;
   /** Commandes que ses permissions lui ouvrent. */
   allowedCommands: string[];
+}
+
+// ===== Outils MCP (mcp.rs = camelCase) =====
+
+export interface McpInfo {
+  /** Chemin relatif au coffre, ex. `IA/MCP/git-hub.md`. */
+  path: string;
+  name: string;
+  description: string;
+  /** Agents qui le déclarent dans leur frontmatter. */
+  declaredBy: string[];
 }
 
 // ===== Serveur distant (remote.rs = camelCase) =====

@@ -33,6 +33,7 @@ import type {
   PlanUpdateEvent,
   InstalledPlugin,
   LoadedPlugin,
+  McpInfo,
   PatchSavePayload,
   RemoteStatus,
   UiPatch,
@@ -172,6 +173,18 @@ export const teamDelete = (teamId: string): Promise<void> =>
 /** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
 export const teamRun = (sessionId: string, objective: string): Promise<void> =>
   call<void>("team_run", { sessionId, objective });
+
+// ===== Outils MCP =====
+
+/** Outils déclarés dans le coffre, avec les agents qui les utilisent. */
+export const mcpList = (): Promise<McpInfo[]> => call<McpInfo[]>("mcp_list");
+
+/** Rédige une déclaration dans `brouillon/` ; renvoie son chemin. */
+export const mcpDraft = (
+  name: string,
+  description: string,
+  body: string,
+): Promise<string> => call<string>("mcp_draft", { name, description, body });
 
 // ===== Patches d'interface et plugins =====
 //

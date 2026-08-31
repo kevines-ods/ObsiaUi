@@ -1,16 +1,19 @@
 /**
- * Plans — décomposition d'un objectif en étapes assignées.
+ * Planification : objectifs découpés en étapes assignées.
  *
- * Un plan n'est pas une conversation : c'est une structure connue d'avance,
- * dont les étapes indépendantes s'exécutent en parallèle. Le panneau montre
- * donc l'état de chaque étape plutôt qu'un fil de messages.
+ * Le panneau montre l'état, pas un fil de messages : une planification n'est
+ * pas une conversation mais une structure connue d'avance, dont les étapes
+ * indépendantes s'exécutent en parallèle. D'où les pastilles d'étapes, qui
+ * disent d'un coup d'œil ce qui tourne, ce qui a abouti et ce qui a été
+ * écarté.
  *
- * Un découpage proposé par un modèle est affiché **avant** d'être enregistré :
- * il mérite d'être relu avant d'engager le budget de son exécution.
+ * La création et la modification passent par la fenêtre de configuration
+ * (`PlanEditor`), qui offre les deux chemins : écrire les étapes à la main,
+ * ou partir d'un découpage proposé par un modèle et le retoucher.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { useApp } from "../context/AppContext";
+import PlanEditor from "./PlanEditor";
 import * as ipc from "../lib/ipc";
 import type { Plan, PlanStep, StepStatus } from "../types/ipc";
 
@@ -22,13 +25,14 @@ const ETIQUETTE: Record<StepStatus, string> = {
   skipped: "écartée",
 };
 
+const CLOSES: StepStatus[] = ["done", "failed", "skipped"];
+
 function EtapeChip({ step }: { step: PlanStep }): React.JSX.Element {
   return (
     <span
       className={`step-chip step-${step.status}`}
-      title={`${step.title} — ${ETIQUETTE[step.status]}${
-        step.error ? ` : ${step.error}` : ""
-      }\nagent ${step.agent} · ${step.model}${
+      title={`${step.title} — ${ETIQUETTE[step.status]}${step.error ? ` : ${step.error}` : ""}
+agent ${step.agent} · ${step.model}${
         step.dependsOn.length ? `\ndépend de ${step.dependsOn.join(", ")}` : ""
       }`}
     >
@@ -38,27 +42,23 @@ function EtapeChip({ step }: { step: PlanStep }): React.JSX.Element {
 }
 
 export default function PlansPanel(): React.JSX.Element {
-  const { selectedProviderId, selectedModel, selectedAgent } = useApp();
-
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [draft, setDraft] = useState<Plan | null>(null);
-  const [objectif, setObjectif] = useState("");
-  const [occupe, setOccupe] = useState(false);
-  const [encours, setEncours] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [ouvert, setOuvert] = useState(false);
+  const [edition, setEdition] = useState<{ plan: Plan | null } | null>(null);
 
-  const recharger = async (): Promise<void> => {
+  const recharger = useCallback(async (): Promise<void> => {
     try {
       setPlans(await ipc.plansList());
+      setErreur(null);
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e));
     }
-  };
+  }, []);
 
   useEffect(() => {
     void recharger();
-  }, []);
+  }, [recharger]);
 
   // L'avancement arrive par événement : une exécution parallèle produit
   // plusieurs transitions qu'un rechargement périodique manquerait.
@@ -67,10 +67,11 @@ export default function PlansPanel(): React.JSX.Element {
     let annule = false;
     void ipc.planStream
       .onUpdate(({ plan }) => {
-        setPlans((prev) => {
-          const connu = prev.some((p) => p.id === plan.id);
-          return connu ? prev.map((p) => (p.id === plan.id ? plan : p)) : [plan, ...prev];
-        });
+        setPlans((prev) =>
+          prev.some((p) => p.id === plan.id)
+            ? prev.map((p) => (p.id === plan.id ? plan : p))
+            : [plan, ...prev],
+        );
       })
       .then((u) => {
         if (annule) u();
@@ -82,89 +83,52 @@ export default function PlansPanel(): React.JSX.Element {
     };
   }, []);
 
-  const decomposer = async (): Promise<void> => {
-    if (!objectif.trim() || !selectedModel) return;
-    setOccupe(true);
-    setErreur(null);
-    setDraft(null);
-    try {
-      setDraft(
-        await ipc.planDraft({
-          objective: objectif,
-          agent: selectedAgent ?? "assistant",
-          provider: selectedProviderId || null,
-          model: selectedModel,
-        }),
-      );
-    } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
-    } finally {
-      setOccupe(false);
-    }
-  };
-
-  const enregistrer = async (): Promise<void> => {
-    if (!draft) return;
-    try {
-      await ipc.planSave({
-        title: draft.title,
-        objective: draft.objective,
-        steps: draft.steps,
-      });
-      setDraft(null);
-      setObjectif("");
-      await recharger();
-    } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const executer = async (id: string): Promise<void> => {
-    setEncours(id);
+    setEnCours(id);
     setErreur(null);
     try {
       await ipc.planRun(id);
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {
-      setEncours(null);
+      setEnCours(null);
       await recharger();
     }
   };
 
-  const supprimer = async (id: string): Promise<void> => {
-    await ipc.planDelete(id);
-    await recharger();
-  };
-
   return (
-    <section className="panel-section">
-      <div className="dropdown-head">
-        <span>Plans</span>
-        <button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
-          {ouvert ? "Fermer" : "Décomposer"}
+    <div className="panel-block">
+      <div className="panel-actions">
+        <button type="button" className="link" onClick={() => setEdition({ plan: null })}>
+          Nouvelle
         </button>
       </div>
 
-      {plans.length === 0 && !ouvert && (
+      {plans.length === 0 && (
         <p className="empty-hint">
-          Aucun plan. Décomposez un objectif en étapes : celles qui ne dépendent
-          de rien s'exécuteront en parallèle.
+          Aucune planification. Découpez un objectif en étapes : celles qui ne
+          dépendent de rien s'exécuteront en parallèle.
         </p>
       )}
 
       {plans.map((p) => {
-        const faites = p.steps.filter((s) =>
-          ["done", "failed", "skipped"].includes(s.status),
-        ).length;
+        const faites = p.steps.filter((s) => CLOSES.includes(s.status)).length;
+        const tourne = enCours === p.id || p.status === "running";
         return (
           <div className="plan-row" key={p.id}>
             <div className="plan-head">
-              <span className="team-title">{p.title}</span>
+              <button
+                type="button"
+                className="team-title link-plain"
+                onClick={() => setEdition({ plan: p })}
+                title="Ouvrir la configuration"
+              >
+                {p.title}
+              </button>
               <span className="runtime-meta">
                 {faites}/{p.steps.length}
               </span>
-              {encours === p.id || p.status === "running" ? (
+              {tourne ? (
                 <button
                   type="button"
                   className="btn btn-mini"
@@ -179,8 +143,8 @@ export default function PlansPanel(): React.JSX.Element {
                   onClick={() => void executer(p.id)}
                   title={
                     p.status === "incomplete"
-                      ? "Reprend là où le plan s'est arrêté"
-                      : "Exécuter le plan"
+                      ? "Reprend là où la planification s'est arrêtée"
+                      : "Exécuter"
                   }
                 >
                   {p.status === "incomplete" ? "Reprendre" : "Exécuter"}
@@ -190,7 +154,7 @@ export default function PlansPanel(): React.JSX.Element {
                 type="button"
                 className="session-close"
                 aria-label={`Supprimer ${p.title}`}
-                onClick={() => void supprimer(p.id)}
+                onClick={() => void ipc.planDelete(p.id).then(recharger)}
               >
                 ×
               </button>
@@ -204,54 +168,15 @@ export default function PlansPanel(): React.JSX.Element {
         );
       })}
 
-      {ouvert && (
-        <div className="team-form">
-          <label>
-            Objectif
-            <input
-              value={objectif}
-              placeholder="ex. réécrire le module de détection"
-              onChange={(e) => setObjectif(e.target.value)}
-            />
-          </label>
-          <div className="team-actions">
-            <button
-              type="button"
-              className="btn btn-mini"
-              onClick={() => void decomposer()}
-              disabled={occupe || !objectif.trim() || !selectedModel}
-            >
-              {occupe ? "…" : "Proposer un découpage"}
-            </button>
-            {draft && (
-              <button
-                type="button"
-                className="btn btn-primary btn-mini"
-                onClick={() => void enregistrer()}
-              >
-                Enregistrer
-              </button>
-            )}
-          </div>
+      {erreur && <p className="err-text">{erreur}</p>}
 
-          {draft && (
-            <div className="plan-draft">
-              <div className="team-title">{draft.title}</div>
-              {draft.steps.map((s) => (
-                <div className="runtime-meta" key={s.id}>
-                  <strong>{s.id}</strong> — {s.title} · {s.agent}
-                  {s.dependsOn.length > 0 && ` · après ${s.dependsOn.join(", ")}`}
-                </div>
-              ))}
-            </div>
-          )}
-          {!selectedModel && (
-            <p className="empty-hint">Sélectionnez d'abord un modèle.</p>
-          )}
-          {erreur && <p className="err-text">{erreur}</p>}
-        </div>
+      {edition && (
+        <PlanEditor
+          plan={edition.plan}
+          onClose={() => setEdition(null)}
+          onSaved={() => void recharger()}
+        />
       )}
-      {!ouvert && erreur && <p className="err-text">{erreur}</p>}
-    </section>
+    </div>
   );
 }
