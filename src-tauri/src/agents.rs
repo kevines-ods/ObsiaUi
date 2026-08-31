@@ -106,7 +106,7 @@ fn info_agents(agents: &[AgentInfo]) {
 
 /// Découpe un fichier markdown en `(frontmatter_yaml, corps)`.
 /// Le fichier doit commencer par `---` et contenir une ligne `---` fermante.
-fn split_frontmatter(raw: &str) -> Result<(&str, &str), String> {
+pub(crate) fn split_frontmatter(raw: &str) -> Result<(&str, &str), String> {
     let rest = raw
         .strip_prefix("---")
         .ok_or("pas de frontmatter (doit commencer par ---)")?;

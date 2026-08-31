@@ -17,8 +17,10 @@ import {
 } from "react";
 
 import * as ipc from "../lib/ipc";
+import { appliquerTheme } from "../lib/theme";
 import { loadAgents } from "../lib/agents";
 import type { AgentInfo } from "../types/ipc";
+import { INTENDANT } from "../types/ipc";
 import type {
   ConfigPatch,
   ConfigView,
@@ -84,6 +86,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     try {
       const cfg = await ipc.configGet();
       setConfig(cfg);
+      appliquerTheme(cfg.theme);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     }
@@ -131,7 +134,19 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
   const refreshAgents = useCallback(async (): Promise<void> => {
     setLoadingAgents(true);
     try {
-      const list = await loadAgents();
+      // L'intendant n'est pas un agent du coffre : il configure
+      // l'application. Il est ajouté ici pour être sélectionnable comme les
+      // autres, en tête puisqu'il est le point d'entrée naturel.
+      const intendant: AgentInfo = {
+        path: "",
+        name: INTENDANT,
+        description:
+          "Agent intégré à l'application : thème, sessions, équipes, planifications, accès distant. Ses actions sont soumises à validation.",
+        skills: [],
+        mcp: [],
+        readOnly: false,
+      };
+      const list = [intendant, ...(await loadAgents())];
       setAgents(list);
       // Sélection initiale : premier agent par défaut.
       setSelectedAgent((prev) =>
@@ -192,6 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     try {
       const cfg = await ipc.configSet(patch);
       setConfig(cfg);
+      appliquerTheme(cfg.theme);
       return cfg;
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));

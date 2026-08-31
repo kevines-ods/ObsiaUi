@@ -96,13 +96,10 @@ export default function TeamsPanel(): React.JSX.Element {
   };
 
   return (
-    <section className="panel-section">
-      <div className="dropdown-head">
-        <span>Équipes</span>
-        <button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
+    <div className="panel-block">
+      <div className="panel-actions"><button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
           {ouvert ? "Annuler" : "Composer"}
-        </button>
-      </div>
+        </button></div>
 
       {teams.length === 0 && !ouvert && (
         <p className="empty-hint">
@@ -250,6 +247,6 @@ export default function TeamsPanel(): React.JSX.Element {
           {erreur && <p className="err-text">{erreur}</p>}
         </div>
       )}
-    </section>
+    </div>
   );
 }

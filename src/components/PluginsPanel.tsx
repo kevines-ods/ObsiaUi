@@ -78,13 +78,10 @@ export default function PluginsPanel(): React.JSX.Element {
   };
 
   return (
-    <section className="panel-section">
-      <div className="dropdown-head">
-        <span>Extensions</span>
-        <button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
+    <div className="panel-block">
+      <div className="panel-actions"><button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
           {ouvert ? "Fermer" : "Gérer"}
-        </button>
-      </div>
+        </button></div>
 
       {patches.map((p) => (
         <div className="team-row" key={p.id}>
@@ -178,6 +175,6 @@ export default function PluginsPanel(): React.JSX.Element {
           {e}
         </p>
       ))}
-    </section>
+    </div>
   );
 }

@@ -84,13 +84,10 @@ export default function RemotePanel(): React.JSX.Element {
   };
 
   return (
-    <section className="panel-section">
-      <div className="dropdown-head">
-        <span>À distance</span>
-        <button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
+    <div className="panel-block">
+      <div className="panel-actions"><button type="button" className="link" onClick={() => setOuvert((v) => !v)}>
           {ouvert ? "Fermer" : "Configurer"}
-        </button>
-      </div>
+        </button></div>
 
       <div className="runtime-row">
         <span className={`badge ${cible.kind === "remote" ? "badge-ok" : ""}`}>
@@ -207,6 +204,6 @@ export default function RemotePanel(): React.JSX.Element {
         </div>
       )}
       {!ouvert && erreur && <p className="err-text">{erreur}</p>}
-    </section>
+    </div>
   );
 }

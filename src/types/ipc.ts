@@ -95,6 +95,8 @@ export interface ChatRequestPayload {
 
 // ===== Config (config.rs = camelCase) =====
 
+export type Theme = "dark" | "light" | "system";
+
 export interface SetApiKey {
   providerId: string;
   apiKey: string;
@@ -106,6 +108,7 @@ export interface ConfigPatch {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  theme?: Theme | null;
   remoteEnabled?: boolean | null;
   remoteBind?: string | null;
 }
@@ -116,6 +119,8 @@ export interface ConfigView {
   defaultProvider?: string | null;
   ollamaHost?: string | null;
   llamacppHost?: string | null;
+  /** `dark` (défaut), `light` ou `system`. */
+  theme: Theme;
   remoteEnabled: boolean;
   remoteBind?: string | null;
   /** Présence du jeton seulement ; sa valeur se lit par `remoteTokenRead`. */
@@ -386,6 +391,86 @@ export interface LoadedPlugin extends InstalledPlugin {
   source: string;
   /** Commandes que ses permissions lui ouvrent. */
   allowedCommands: string[];
+}
+
+// ===== Intendant (intendant.rs) =====
+
+/** Nom de l'agent intégré, distinct des agents du coffre. */
+export const INTENDANT = "intendant";
+
+/**
+ * Action proposée par l'intendant. Union discriminée sur `action`,
+ * sérialisée en kebab-case côté Rust.
+ */
+export type IntendantAction =
+  | { action: "theme"; theme: Theme }
+  | { action: "fournisseur-defaut"; providerId: string }
+  | { action: "session"; agent?: string | null; provider?: string | null; model: string }
+  | {
+      action: "equipe";
+      name: string;
+      description: string;
+      members: TeamMember[];
+      strategy: TeamStrategy;
+      maxTurns: number;
+    }
+  | { action: "planification"; title: string; objective: string; steps: PlanStep[] }
+  | { action: "patch"; name: string; description: string; theme: Record<string, string> }
+  | { action: "patch-actif"; patchId: string; enabled: boolean }
+  | { action: "distant"; enabled: boolean };
+
+/** Actions proposées, avec leur description en clair. */
+export interface Proposition {
+  actions: IntendantAction[];
+  descriptions: string[];
+}
+
+export interface ActionResult {
+  description: string;
+  ok: boolean;
+  error?: string | null;
+}
+
+// ===== Graphe du coffre (graph.rs = camelCase) =====
+
+export interface GraphNode {
+  /** Chemin relatif au coffre — identifiant du nœud. */
+  id: string;
+  name: string;
+  /** Dossier de premier niveau. */
+  folder: string;
+  tags: string[];
+  outDegree: number;
+  inDegree: number;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+export interface BrokenLink {
+  from: string;
+  target: string;
+}
+
+export interface VaultGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Liens vers des notes inexistantes. */
+  broken: BrokenLink[];
+  tags: string[];
+}
+
+// ===== Outils MCP (mcp.rs = camelCase) =====
+
+export interface McpInfo {
+  /** Chemin relatif au coffre, ex. `IA/MCP/git-hub.md`. */
+  path: string;
+  name: string;
+  description: string;
+  /** Agents qui le déclarent dans leur frontmatter. */
+  declaredBy: string[];
 }
 
 // ===== Serveur distant (remote.rs = camelCase) =====

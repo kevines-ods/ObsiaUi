@@ -1,19 +1,23 @@
 /**
- * Explorateur du coffre Obsidian (droite).
+ * Notes du coffre : navigation et édition.
  *
- * - `vault_path` : racine du coffre.
- * - `vault_list` : liste des notes Markdown.
- * - `vault_read` / `vault_write` : lecture, édition et sauvegarde.
+ * L'écriture reste bornée à `brouillon/` par la sandbox du backend — le reste
+ * du coffre passe par un patch relu.
  *
- * Le backlinks n'est pas exposé par le backend ; la vue se concentre sur
- * naviguer et éditer les notes du coffre.
+ * `openPath` permet à la vue graphique d'amener ici la note sur laquelle on
+ * vient de cliquer, sans dupliquer l'éditeur.
  */
 import { useCallback, useEffect, useState } from "react";
 
 import * as ipc from "../lib/ipc";
 import type { VaultEntry } from "../types/ipc";
 
-export default function FileManager(): React.JSX.Element {
+export default function FileManager({
+  openPath,
+}: {
+  /** Note à ouvrir, demandée de l'extérieur. */
+  openPath?: string | null;
+} = {}): React.JSX.Element {
   const [vaultPath, setVaultPath] = useState<string>("");
   const [entries, setEntries] = useState<VaultEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -58,6 +62,11 @@ export default function FileManager(): React.JSX.Element {
       setLoadingNote(false);
     }
   }, []);
+
+  // Ouverture demandée par la vue graphique.
+  useEffect(() => {
+    if (openPath) void openNote(openPath);
+  }, [openPath, openNote]);
 
   const save = useCallback(async (): Promise<void> => {
     if (!selectedPath) return;

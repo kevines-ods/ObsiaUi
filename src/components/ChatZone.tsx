@@ -1,6 +1,10 @@
 /**
  * Zone de conversation (centre) — rendu de la session active.
  *
+ * La liste des sessions vit dans le panneau latéral : au-delà de trois ou
+ * quatre, une rangée d'onglets tronquait les titres jusqu'à les rendre
+ * indistinguables.
+ *
  * L'historique et le prompt système sont tenus par le backend : cette zone
  * n'assemble plus de messages, elle envoie du texte et affiche ce qui revient.
  * Le prompt de l'agent est relu dans le coffre à chaque tour, donc modifier un
@@ -11,7 +15,6 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useApp } from "../context/AppContext";
 import { useSessions } from "../context/SessionsContext";
 import PluginSlot from "./PluginSlot";
-import SessionTabs from "./SessionTabs";
 
 export default function ChatZone(): React.JSX.Element {
   const { agents, selectedModel } = useApp();
@@ -23,6 +26,10 @@ export default function ChatZone(): React.JSX.Element {
     busy,
     errors,
     speaking,
+    propositions,
+    resultats,
+    applyProposition,
+    dismissProposition,
     teams,
     loading,
     createSession,
@@ -40,6 +47,8 @@ export default function ChatZone(): React.JSX.Element {
   const erreur = activeId ? errors[activeId] : errors.__global;
   const agent = agents.find((a) => a.name === active?.agent);
   const equipe = teams.find((t) => t.id === active?.team);
+  const proposition = activeId ? propositions[activeId] : null;
+  const issues = activeId ? resultats[activeId] : null;
   // En session d'équipe, l'orateur change en cours d'exécution.
   const orateur = activeId ? speaking[activeId] : null;
 
@@ -77,7 +86,6 @@ export default function ChatZone(): React.JSX.Element {
   if (!loading && sessions.length === 0) {
     return (
       <div className="chat-zone">
-        <SessionTabs />
         <div className="empty-state">
           <p>Aucune session ouverte.</p>
           <p className="empty-hint">
@@ -100,8 +108,6 @@ export default function ChatZone(): React.JSX.Element {
 
   return (
     <div className="chat-zone">
-      <SessionTabs />
-
       {active && (
         <div className="chat-agent-bar">
           <span className="chat-agent-name">
@@ -141,6 +147,52 @@ export default function ChatZone(): React.JSX.Element {
               {partiel}
               <span className="stream-caret" aria-hidden="true" />
             </div>
+          </div>
+        )}
+
+        {/* Rien n'est appliqué à la lecture de la réponse : l'intendant
+            propose, l'utilisateur valide. */}
+        {proposition && activeId && (
+          <div className="proposition" role="group" aria-label="Actions proposées">
+            <div className="proposition-head">
+              L'intendant propose {proposition.actions.length} action
+              {proposition.actions.length > 1 ? "s" : ""}
+            </div>
+            <ul className="proposition-list">
+              {proposition.descriptions.map((d, i) => (
+                <li key={i}>{d}</li>
+              ))}
+            </ul>
+            <div className="team-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-mini"
+                onClick={() => void applyProposition(activeId)}
+              >
+                Appliquer
+              </button>
+              <button
+                type="button"
+                className="btn btn-mini"
+                onClick={() => dismissProposition(activeId)}
+              >
+                Ignorer
+              </button>
+            </div>
+          </div>
+        )}
+
+        {issues && issues.length > 0 && (
+          <div className="proposition" role="status">
+            {issues.map((r, i) => (
+              <div key={i} className="cp-row">
+                <span className={`badge ${r.ok ? "badge-ok" : "badge-err"}`}>
+                  {r.ok ? "fait" : "refusé"}
+                </span>
+                <span className="cp-label">{r.description}</span>
+                {r.error && <span className="runtime-meta">{r.error}</span>}
+              </div>
+            ))}
           </div>
         )}
 

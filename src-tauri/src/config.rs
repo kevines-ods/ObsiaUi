@@ -44,6 +44,13 @@ pub struct AppConfig {
     /// Host llama.cpp personnalisé (ex: http://localhost:8080).
     #[serde(default)]
     pub llamacpp_host: Option<String>,
+    /// Thème de l'interface : `dark` (défaut), `light` ou `system`.
+    ///
+    /// En config plutôt qu'en stockage navigateur : l'intendant doit pouvoir
+    /// le changer par le chat, et le réglage doit survivre à un vidage du
+    /// cache de la fenêtre.
+    #[serde(default)]
+    pub theme: Option<String>,
     /// Serveur distant : démarré automatiquement au lancement.
     #[serde(default)]
     pub remote_enabled: bool,
@@ -65,6 +72,7 @@ pub struct ConfigView {
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
     pub llamacpp_host: Option<String>,
+    pub theme: String,
     pub remote_enabled: bool,
     pub remote_bind: Option<String>,
     /// Présence du jeton seulement — sa valeur se lit par `remote_token_read`,
@@ -82,6 +90,7 @@ pub struct ConfigPatch {
     pub default_provider: Option<String>,
     pub ollama_host: Option<String>,
     pub llamacpp_host: Option<String>,
+    pub theme: Option<String>,
     pub remote_enabled: Option<bool>,
     pub remote_bind: Option<String>,
 }
@@ -152,12 +161,24 @@ impl AppConfig {
             default_provider: self.default_provider.clone(),
             ollama_host: self.ollama_host.clone(),
             llamacpp_host: self.llamacpp_host.clone(),
+            theme: self.theme(),
             remote_enabled: self.remote_enabled,
             remote_bind: self.remote_bind.clone(),
             remote_token_configured: self
                 .remote_token
                 .as_ref()
                 .is_some_and(|t| !t.trim().is_empty()),
+        }
+    }
+
+    /// Thème effectif. Le défaut est **sombre** : l'application s'utilise
+    /// surtout de longues sessions, et rien ne justifie de suivre le réglage
+    /// du système tant que l'utilisateur n'a pas choisi.
+    pub fn theme(&self) -> String {
+        match self.theme.as_deref() {
+            Some("light") => "light".to_string(),
+            Some("system") => "system".to_string(),
+            _ => "dark".to_string(),
         }
     }
 
@@ -190,6 +211,15 @@ impl AppConfig {
         }
         if let Some(p) = patch.llamacpp_host {
             self.llamacpp_host = if p.trim().is_empty() { None } else { Some(p) };
+        }
+        if let Some(t) = patch.theme {
+            // Une valeur inconnue est ignorée plutôt qu'enregistrée : elle
+            // produirait une fenêtre sans palette.
+            if matches!(t.as_str(), "dark" | "light" | "system") {
+                self.theme = Some(t);
+            } else {
+                warn!(theme = %t, "thème inconnu ignoré");
+            }
         }
         if let Some(v) = patch.remote_enabled {
             self.remote_enabled = v;
@@ -300,6 +330,28 @@ mod tests {
         unsafe {
             std::env::remove_var("OPENAI_API_KEY");
         }
+    }
+
+    #[test]
+    fn le_theme_par_defaut_est_sombre() {
+        assert_eq!(AppConfig::default().theme(), "dark");
+        assert_eq!(AppConfig::default().view().theme, "dark");
+    }
+
+    #[test]
+    fn seuls_les_themes_connus_sont_enregistres() {
+        // Une valeur inconnue produirait une fenêtre sans palette.
+        let mut cfg = AppConfig::default();
+        cfg.apply_patch(ConfigPatch {
+            theme: Some("light".into()),
+            ..Default::default()
+        });
+        assert_eq!(cfg.theme(), "light");
+        cfg.apply_patch(ConfigPatch {
+            theme: Some("fluo".into()),
+            ..Default::default()
+        });
+        assert_eq!(cfg.theme(), "light", "le thème valide doit être conservé");
     }
 
     #[test]

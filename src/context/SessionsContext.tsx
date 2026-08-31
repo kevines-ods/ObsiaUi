@@ -23,12 +23,15 @@ import {
 import { useApp } from "./AppContext";
 import * as ipc from "../lib/ipc";
 import type {
+  ActionResult,
+  Proposition,
   Session,
   SessionMessage,
   SessionMeta,
   Team,
   VaultEntry,
 } from "../types/ipc";
+import { INTENDANT } from "../types/ipc";
 
 interface SessionsContextValue {
   sessions: SessionMeta[];
@@ -43,6 +46,12 @@ interface SessionsContextValue {
   errors: Record<string, string | null>;
   /** Membre ayant la parole, par session d'équipe. */
   speaking: Record<string, string | null>;
+  /** Actions que l'intendant propose, en attente de validation. */
+  propositions: Record<string, Proposition | null>;
+  /** Résultat de la dernière application, par session. */
+  resultats: Record<string, ActionResult[] | null>;
+  applyProposition: (sessionId: string) => Promise<void>;
+  dismissProposition: (sessionId: string) => void;
   teams: Team[];
   refreshTeams: () => Promise<void>;
   createSession: () => Promise<void>;
@@ -78,6 +87,8 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [speaking, setSpeaking] = useState<Record<string, string | null>>({});
+  const [propositions, setPropositions] = useState<Record<string, Proposition | null>>({});
+  const [resultats, setResultats] = useState<Record<string, ActionResult[] | null>>({});
   const [teams, setTeams] = useState<Team[]>([]);
 
   // L'abonnement aux événements est monté une seule fois : il doit lire la
@@ -318,10 +329,16 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       setStreaming((prev) => ({ ...prev, [id]: "" }));
 
       try {
-        // Une session d'équipe fait travailler plusieurs agents à la suite ;
-        // le message devient leur objectif commun.
         if (active?.id === id && active.team) {
+          // Une session d'équipe fait travailler plusieurs agents à la
+          // suite ; le message devient leur objectif commun.
           await ipc.teamRun(id, texte);
+        } else if (active?.id === id && active.agent === INTENDANT) {
+          // L'intendant peut proposer des actions : elles reviennent ici et
+          // attendent une validation, rien n'est appliqué à la volée.
+          const proposition = await ipc.intendantSend(id, texte);
+          setPropositions((prev) => ({ ...prev, [id]: proposition }));
+          setResultats((prev) => ({ ...prev, [id]: null }));
         } else {
           await ipc.sessionSend(id, texte);
         }
@@ -334,6 +351,28 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
     },
     [activeId, busy, active],
   );
+
+  const applyProposition = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const proposition = propositions[sessionId];
+      if (!proposition) return;
+      try {
+        const issues = await ipc.intendantApply(proposition.actions);
+        setResultats((prev) => ({ ...prev, [sessionId]: issues }));
+        setPropositions((prev) => ({ ...prev, [sessionId]: null }));
+        // Une action a pu créer une équipe, une session ou changer le thème :
+        // on relit ce qui est affiché plutôt que de deviner.
+        await Promise.all([refresh(), refreshTeams()]);
+      } catch (e) {
+        setErrors((prev) => ({ ...prev, [sessionId]: message(e) }));
+      }
+    },
+    [propositions, refresh, refreshTeams],
+  );
+
+  const dismissProposition = useCallback((sessionId: string): void => {
+    setPropositions((prev) => ({ ...prev, [sessionId]: null }));
+  }, []);
 
   const cancel = useCallback(async (id: string): Promise<void> => {
     try {
@@ -358,6 +397,10 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       busy,
       errors,
       speaking,
+      propositions,
+      resultats,
+      applyProposition,
+      dismissProposition,
       teams,
       refreshTeams,
       createSession,
@@ -378,6 +421,10 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
       busy,
       errors,
       speaking,
+      propositions,
+      resultats,
+      applyProposition,
+      dismissProposition,
       teams,
       refreshTeams,
       createSession,

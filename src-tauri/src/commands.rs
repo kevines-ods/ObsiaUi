@@ -9,6 +9,10 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - Intendant : `intendant_prompt`, `intendant_send`, `intendant_apply`
+//! - Coffre : `vault_graph` (liens et étiquettes), `vault_open_external`
+//! - MCP : `mcp_list`, `mcp_draft` (déclaration seulement — ObsiaUi ne
+//!   se connecte pas aux serveurs MCP)
 //! - Interface : `patches_list`, `patch_save`, `patch_delete`,
 //!   `patch_toggle`, `patch_css`
 //! - Plugins : `plugins_list`, `plugins_load`, `plugins_dir`,
@@ -32,10 +36,13 @@ use crate::agents::{AgentDoc, AgentInfo};
 use crate::config::{AppConfig, ConfigPatch, ConfigState, ConfigView};
 use crate::discovery::{self, RuntimeKind, RuntimeScan};
 use crate::event::EventBus;
+use crate::graph::VaultGraph;
+use crate::intendant;
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
 use crate::llm::registry::{ModelRegistry, ProviderRegistry};
+use crate::mcp::McpInfo;
 use crate::plan::{self, Plan, PlanManager, PlanStatus, PlanStep};
 use crate::plugin::{self, InstalledPlugin, LayoutPatch, PluginStore, UiPatch};
 use crate::remote::{self, Harness, RemoteState};
@@ -1006,8 +1013,10 @@ pub async fn session_send(
         vault.inner(),
         session_id,
         content,
+        None,
     )
     .await
+    .map(|_| ())
 }
 
 /// Corps de [`session_send`], indépendant de Tauri.
@@ -1022,7 +1031,10 @@ pub async fn session_send_impl(
     vault: &VaultState,
     session_id: String,
     content: String,
-) -> Result<(), String> {
+    // `system_override` impose le prompt système et court-circuite l'agent du
+    // coffre : c'est ainsi que l'intendant, qui n'en est pas un, s'insère.
+    system_override: Option<&str>,
+) -> Result<String, String> {
     if content.trim().is_empty() {
         return Err("message vide refusé".into());
     }
@@ -1030,18 +1042,20 @@ pub async fn session_send_impl(
     // L'agent est optionnel, et un agent illisible ne doit pas bloquer la
     // conversation : on continue sans prompt système, en le signalant.
     let session = sessions.get(&session_id)?;
-    let system_prompt =
-        session
-            .meta
-            .agent
-            .as_ref()
-            .and_then(|nom| match vault.agent_read(&format!("{nom}.md")) {
+    let system_prompt = match system_override {
+        // L'intendant n'est pas un agent du coffre : son prompt est fourni
+        // par l'appelant plutôt que lu dans `IA/agents/`.
+        Some(p) => Some(p.to_string()),
+        None => session.meta.agent.as_ref().and_then(|nom| {
+            match vault.agent_read(&format!("{nom}.md")) {
                 Ok(doc) => Some(doc.content),
                 Err(e) => {
                     warn!(agent = %nom, %e, "prompt système introuvable, session sans agent");
                     None
                 }
-            });
+            }
+        }),
+    };
 
     sessions
         .push_message(&session_id, SessionMessage::new("user", content))
@@ -1113,10 +1127,11 @@ pub async fn session_send_impl(
                 cancelled: true,
             },
         );
-        return Ok(());
+        return Ok(String::new());
     }
 
-    let message = SessionMessage::new("assistant", texte).with_agent(session.meta.agent.clone());
+    let message =
+        SessionMessage::new("assistant", texte.clone()).with_agent(session.meta.agent.clone());
     let meta = sessions.push_message(&session_id, message.clone()).await?;
     bus.emit(
         "session:done",
@@ -1127,7 +1142,9 @@ pub async fn session_send_impl(
             cancelled,
         },
     );
-    Ok(())
+    // Le texte produit est rendu à l'appelant : l'intendant y cherche son
+    // bloc d'actions, ce que la fenêtre n'a pas à faire.
+    Ok(texte)
 }
 
 /// Exporte une session en note Markdown dans `brouillon/`.
@@ -2115,4 +2132,363 @@ pub fn plugin_disable(
     plugin_id: String,
 ) -> Result<(), String> {
     plugins.disable(&plugin_id)
+}
+
+// ===== Commandes — Outils MCP =====
+
+/// Liste les outils MCP déclarés dans le coffre, avec les agents qui les
+/// utilisent.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn mcp_list(vault: State<'_, VaultStateArc>) -> Result<Vec<McpInfo>, String> {
+    vault.mcp_list()
+}
+
+/// Rédige une déclaration MCP dans `brouillon/` et renvoie son chemin.
+///
+/// Jamais directement dans `IA/MCP/` : donner à des agents un outil que
+/// personne n'a relu reviendrait à leur ouvrir un accès sans revue.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn mcp_draft(
+    vault: State<'_, VaultStateArc>,
+    name: String,
+    description: String,
+    body: String,
+) -> Result<String, String> {
+    vault.mcp_draft(&name, &description, &body)
+}
+
+// ===== Commandes — Graphe du coffre =====
+
+/// Graphe du coffre : notes, liens résolus, liens cassés et étiquettes.
+///
+/// Reconstruit depuis les fichiers Markdown. Obsidian n'expose pas d'API
+/// externe, et un plugin communautaire exigerait qu'il tourne sans fournir
+/// pour autant le graphe déjà dessiné.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn vault_graph(vault: State<'_, VaultStateArc>) -> Result<VaultGraph, String> {
+    vault.graph()
+}
+
+/// Ouvre une note dans Obsidian.
+///
+/// Passe par `xdg-open`, natif Linux, plutôt que par un greffon supplémentaire
+/// pour un seul bouton. L'argument est transmis directement au programme,
+/// sans interprétation par un shell — et le chemin est d'abord validé par la
+/// sandbox du coffre, donc il ne peut pas désigner un fichier extérieur.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn vault_open_external(
+    vault: State<'_, VaultStateArc>,
+    rel_path: String,
+) -> Result<String, String> {
+    let chemin = vault.safe_join(&rel_path, true)?;
+    let uri = crate::graph::uri_obsidian(&chemin.to_string_lossy());
+    std::process::Command::new("xdg-open")
+        .arg(&uri)
+        .spawn()
+        .map_err(|e| format!("ouverture impossible ({e}) — Obsidian est-il installé ?"))?;
+    info!(note = %rel_path, "note ouverte dans Obsidian");
+    Ok(uri)
+}
+
+// ===== Commandes — Intendant =====
+
+/// Résultat de l'application d'une action.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionResult {
+    pub description: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+/// Prompt système de l'intendant, tel qu'il sera envoyé.
+///
+/// Exposé pour que l'utilisateur puisse le lire : un agent qui reconfigure
+/// l'application ne doit pas être une boîte noire.
+#[tauri::command]
+#[instrument(skip(vault, registry))]
+pub async fn intendant_prompt(
+    vault: State<'_, VaultStateArc>,
+    registry: State<'_, ProviderRegistryState>,
+) -> Result<String, String> {
+    Ok(intendant::prompt(
+        &agents_connus(&vault),
+        &modeles_connus(&registry).await,
+    ))
+}
+
+fn agents_connus(vault: &VaultState) -> Vec<String> {
+    vault
+        .agents_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.name)
+        .collect()
+}
+
+async fn modeles_connus(registry: &ProviderRegistry) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for p in registry.list_all().await {
+        let modeles = p
+            .list_models()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        out.push((p.id().to_string(), modeles));
+    }
+    out
+}
+
+/// Envoie un message à l'intendant et renvoie les actions qu'il propose.
+///
+/// Rien n'est appliqué ici : la proposition est décrite en clair et attend une
+/// validation. Un modèle qui se trompe de thème est sans conséquence ; un
+/// modèle qui supprime une planification par contresens, beaucoup moins.
+#[tauri::command]
+#[instrument(skip(bus, sessions, pool, vault, registry))]
+pub async fn intendant_send(
+    bus: State<'_, EventBusState>,
+    sessions: State<'_, SessionManagerState>,
+    pool: State<'_, ProviderPoolState>,
+    vault: State<'_, VaultStateArc>,
+    registry: State<'_, ProviderRegistryState>,
+    session_id: String,
+    content: String,
+) -> Result<Option<intendant::Proposition>, String> {
+    let prompt = intendant::prompt(&agents_connus(&vault), &modeles_connus(&registry).await);
+    let texte = session_send_impl(
+        bus.inner(),
+        sessions.inner(),
+        pool.inner(),
+        vault.inner(),
+        session_id.clone(),
+        content,
+        Some(&prompt),
+    )
+    .await?;
+
+    match intendant::extraire_actions(&texte) {
+        Ok(proposition) => {
+            if let Some(p) = &proposition {
+                info!(actions = p.actions.len(), "l'intendant propose des actions");
+            }
+            Ok(proposition)
+        }
+        // Une proposition mal formée est signalée sans faire échouer le tour :
+        // la réponse en langage naturel, elle, reste utile.
+        Err(e) => {
+            warn!(%e, "proposition de l'intendant écartée");
+            bus.emit(
+                "intendant:refus",
+                serde_json::json!({ "sessionId": session_id, "raison": e }),
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// Applique les actions validées par l'utilisateur.
+///
+/// Chaque action est indépendante : l'échec de l'une n'annule pas les autres,
+/// et le résultat est rendu action par action pour que l'on sache exactement
+/// ce qui a pris effet.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+#[instrument(skip(
+    config,
+    sessions,
+    teams,
+    plans,
+    plugins,
+    remote_state,
+    bus,
+    pool,
+    registry,
+    vault
+))]
+pub async fn intendant_apply(
+    config: State<'_, ConfigStateArc>,
+    sessions: State<'_, SessionManagerState>,
+    teams: State<'_, TeamStoreState>,
+    plans: State<'_, PlanManagerState>,
+    plugins: State<'_, PluginStoreState>,
+    remote_state: State<'_, RemoteStateArc>,
+    bus: State<'_, EventBusState>,
+    pool: State<'_, ProviderPoolState>,
+    registry: State<'_, ProviderRegistryState>,
+    vault: State<'_, VaultStateArc>,
+    actions: Vec<intendant::Action>,
+) -> Result<Vec<ActionResult>, String> {
+    let mut resultats = Vec::new();
+    for action in actions {
+        let description = action.describe();
+        let issue = appliquer(
+            &action,
+            config.inner(),
+            sessions.inner(),
+            teams.inner(),
+            plans.inner(),
+            plugins.inner(),
+            remote_state.inner(),
+            bus.inner(),
+            pool.inner(),
+            registry.inner(),
+            vault.inner(),
+        )
+        .await;
+        match issue {
+            Ok(()) => {
+                info!(%description, "action appliquée");
+                resultats.push(ActionResult {
+                    description,
+                    ok: true,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                warn!(%description, %e, "action refusée");
+                resultats.push(ActionResult {
+                    description,
+                    ok: false,
+                    error: Some(e),
+                });
+            }
+        }
+    }
+    Ok(resultats)
+}
+
+/// Applique une action. Les validations de fond restent dans les modules
+/// concernés — équipe cohérente, plan sans cycle, valeur CSS sûre : les
+/// refaire ici les ferait diverger de la référence.
+#[allow(clippy::too_many_arguments)]
+async fn appliquer(
+    action: &intendant::Action,
+    config: &ConfigStateArc,
+    sessions: &SessionManagerState,
+    teams: &TeamStoreState,
+    plans: &PlanManagerState,
+    plugins: &PluginStoreState,
+    remote_state: &RemoteStateArc,
+    bus: &EventBusState,
+    pool: &ProviderPoolState,
+    registry: &ProviderRegistryState,
+    vault: &VaultStateArc,
+) -> Result<(), String> {
+    use intendant::Action;
+    action.validate()?;
+    match action {
+        Action::Theme { theme } => {
+            config.update(crate::config::ConfigPatch {
+                theme: Some(theme.clone()),
+                ..Default::default()
+            })?;
+            Ok(())
+        }
+        Action::FournisseurDefaut { provider_id } => {
+            // Un fournisseur inexistant laisserait l'interface sans modèle
+            // sélectionnable, sans dire pourquoi.
+            if registry.get(provider_id).await.is_none() {
+                return Err(format!("fournisseur inconnu : {provider_id}"));
+            }
+            config.update(crate::config::ConfigPatch {
+                default_provider: Some(provider_id.clone()),
+                ..Default::default()
+            })?;
+            Ok(())
+        }
+        Action::Session {
+            agent,
+            provider,
+            model,
+        } => {
+            sessions
+                .create(agent.clone(), None, provider.clone(), model.clone())
+                .await?;
+            Ok(())
+        }
+        Action::Equipe {
+            name,
+            description,
+            members,
+            strategy,
+            max_turns,
+        } => teams.save(&Team::new(
+            name.clone(),
+            description.clone(),
+            members.clone(),
+            *strategy,
+            *max_turns,
+        )),
+        Action::Planification {
+            title,
+            objective,
+            steps,
+        } => {
+            plans
+                .save(&Plan::new(title.clone(), objective.clone(), steps.clone()))
+                .await
+        }
+        Action::Patch {
+            name,
+            description,
+            theme,
+        } => {
+            let mut patch = UiPatch::new(name.clone(), description.clone());
+            patch.theme = theme.clone();
+            plugins.save_patch(&patch)
+        }
+        Action::PatchActif { patch_id, enabled } => {
+            let mut patch = plugins.load_patch(patch_id)?;
+            patch.enabled = *enabled;
+            plugins.save_patch(&patch)?;
+            // La fenêtre applique le CSS cumulé sans avoir à redemander.
+            bus.emit("patch:css", plugins.css_actif());
+            Ok(())
+        }
+        Action::Distant { enabled } => {
+            if !*enabled {
+                remote_state.arreter().await;
+                config.update(crate::config::ConfigPatch {
+                    remote_enabled: Some(false),
+                    ..Default::default()
+                })?;
+                return Ok(());
+            }
+            let cfg = config.read();
+            let jeton = match cfg.remote_token() {
+                Some(j) => j,
+                None => {
+                    // Il n'existe pas de mode sans authentification, même
+                    // demandé par le chat.
+                    let j = remote::generer_jeton();
+                    config.set_remote_token(j.clone())?;
+                    j
+                }
+            };
+            let h = Harness {
+                bus: Arc::clone(bus),
+                sessions: Arc::clone(sessions),
+                teams: Arc::clone(teams),
+                plans: Arc::clone(plans),
+                pool: Arc::clone(pool),
+                registry: Arc::clone(registry),
+                vault: Arc::clone(vault),
+            };
+            remote_state
+                .demarrer(h, &bind_configure(&cfg), &jeton)
+                .await?;
+            config.update(crate::config::ConfigPatch {
+                remote_enabled: Some(true),
+                ..Default::default()
+            })?;
+            Ok(())
+        }
+    }
 }
