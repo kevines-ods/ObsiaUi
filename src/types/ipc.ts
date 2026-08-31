@@ -393,6 +393,37 @@ export interface LoadedPlugin extends InstalledPlugin {
   allowedCommands: string[];
 }
 
+// ===== Graphe du coffre (graph.rs = camelCase) =====
+
+export interface GraphNode {
+  /** Chemin relatif au coffre — identifiant du nœud. */
+  id: string;
+  name: string;
+  /** Dossier de premier niveau. */
+  folder: string;
+  tags: string[];
+  outDegree: number;
+  inDegree: number;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+export interface BrokenLink {
+  from: string;
+  target: string;
+}
+
+export interface VaultGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Liens vers des notes inexistantes. */
+  broken: BrokenLink[];
+  tags: string[];
+}
+
 // ===== Outils MCP (mcp.rs = camelCase) =====
 
 export interface McpInfo {

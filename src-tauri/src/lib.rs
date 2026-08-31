@@ -8,7 +8,7 @@ use crate::commands::{
     remote_status, remote_stop, remote_token_read, remote_token_rotate, runtimes_detect,
     scan_local_models, session_cancel, session_create, session_delete, session_export, session_get,
     session_rename, session_send, sessions_list, team_delete, team_run, team_save, teams_list,
-    vault_list, vault_path, vault_read, vault_write,
+    vault_graph, vault_list, vault_open_external, vault_path, vault_read, vault_write,
 };
 use crate::config::ConfigState;
 use tauri::Manager;
@@ -19,6 +19,7 @@ mod commands;
 mod config;
 mod discovery;
 mod event;
+mod graph;
 mod llm;
 mod mcp;
 mod plan;
@@ -227,6 +228,9 @@ pub fn run() {
             // MCP
             mcp_list,
             mcp_draft,
+            // Graphe du coffre
+            vault_graph,
+            vault_open_external,
             // Config
             config_get,
             config_set,

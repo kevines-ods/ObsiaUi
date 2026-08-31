@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import AgentSelector from "./components/AgentSelector";
 import ChatZone from "./components/ChatZone";
-import FileManager from "./components/FileManager";
+import VaultPanel from "./components/VaultPanel";
 import PluginSlot from "./components/PluginSlot";
 import ProviderSelector from "./components/ProviderSelector";
 import SettingsDialog from "./components/SettingsDialog";
@@ -139,7 +139,7 @@ export default function App() {
                     label="le coffre"
                     onToggle={() => setLayout({ rightOpen: false })}
                   />
-                  <FileManager />
+                  <VaultPanel />
                 </aside>
               </>
             )}

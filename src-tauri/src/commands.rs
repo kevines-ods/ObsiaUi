@@ -9,6 +9,7 @@
 //! - Agents : `agents_list`, `agent_read` (frontmatter validé par le backend)
 //! - Runtimes locaux : `runtimes_detect` (Ollama / llama.cpp)
 //! - Équipes : `teams_list`, `team_save`, `team_delete`, `team_run`
+//! - Coffre : `vault_graph` (liens et étiquettes), `vault_open_external`
 //! - MCP : `mcp_list`, `mcp_draft` (déclaration seulement — ObsiaUi ne
 //!   se connecte pas aux serveurs MCP)
 //! - Interface : `patches_list`, `patch_save`, `patch_delete`,
@@ -34,6 +35,7 @@ use crate::agents::{AgentDoc, AgentInfo};
 use crate::config::{AppConfig, ConfigPatch, ConfigState, ConfigView};
 use crate::discovery::{self, RuntimeKind, RuntimeScan};
 use crate::event::EventBus;
+use crate::graph::VaultGraph;
 use crate::llm::fallback::{PoolStrategy, ProviderPool};
 use crate::llm::provider::TokenEvent;
 use crate::llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo};
@@ -2143,4 +2145,39 @@ pub fn mcp_draft(
     body: String,
 ) -> Result<String, String> {
     vault.mcp_draft(&name, &description, &body)
+}
+
+// ===== Commandes — Graphe du coffre =====
+
+/// Graphe du coffre : notes, liens résolus, liens cassés et étiquettes.
+///
+/// Reconstruit depuis les fichiers Markdown. Obsidian n'expose pas d'API
+/// externe, et un plugin communautaire exigerait qu'il tourne sans fournir
+/// pour autant le graphe déjà dessiné.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn vault_graph(vault: State<'_, VaultStateArc>) -> Result<VaultGraph, String> {
+    vault.graph()
+}
+
+/// Ouvre une note dans Obsidian.
+///
+/// Passe par `xdg-open`, natif Linux, plutôt que par un greffon supplémentaire
+/// pour un seul bouton. L'argument est transmis directement au programme,
+/// sans interprétation par un shell — et le chemin est d'abord validé par la
+/// sandbox du coffre, donc il ne peut pas désigner un fichier extérieur.
+#[tauri::command]
+#[instrument(skip(vault))]
+pub fn vault_open_external(
+    vault: State<'_, VaultStateArc>,
+    rel_path: String,
+) -> Result<String, String> {
+    let chemin = vault.safe_join(&rel_path, true)?;
+    let uri = crate::graph::uri_obsidian(&chemin.to_string_lossy());
+    std::process::Command::new("xdg-open")
+        .arg(&uri)
+        .spawn()
+        .map_err(|e| format!("ouverture impossible ({e}) — Obsidian est-il installé ?"))?;
+    info!(note = %rel_path, "note ouverte dans Obsidian");
+    Ok(uri)
 }

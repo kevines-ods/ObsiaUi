@@ -32,6 +32,16 @@
   --msg-user: #1e2434;
   --msg-assistant: #1e2126;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Graphe du coffre — trois emplacements catégoriels, validés « toutes
+     paires » sur cette surface (les nœuds d'un graphe se côtoient tous).
+     Au-delà de trois dossiers, le quatrième n'obtient pas une couleur de
+     plus : il est encodé par un cercle non rempli. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --graph-edge: #2c3038;
+  --graph-other: #949aa6;
 }
 
 :root[data-theme="light"] {
@@ -53,6 +63,12 @@
   --msg-user: #eef2ff;
   --msg-assistant: #f4f5f7;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --graph-edge: #e3e6ec;
+  --graph-other: #666d78;
 }
 
 * {
@@ -959,4 +975,135 @@ textarea {
 .label {
   font-size: 11px;
   color: var(--muted);
+}
+
+/* ===== Coffre : notes ou graphe ===== */
+.vault-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.vault-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 4px;
+  flex: none;
+}
+.vault-panel > .file-manager,
+.graph-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.graph-wrap {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  gap: 6px;
+  overflow: hidden;
+}
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  flex-wrap: wrap;
+}
+/* Dès deux catégories la légende est présente : l'identité ne repose jamais
+   sur la seule couleur. */
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 10.5px;
+  color: var(--muted);
+  flex: none;
+}
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.graph-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.graph-swatch-other {
+  background: none;
+  border: 1.5px solid var(--graph-other);
+}
+.graph-broken {
+  list-style: none;
+  max-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  flex: none;
+}
+
+.graph-svg {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.graph-svg:active {
+  cursor: grabbing;
+}
+/* Traits fins et récessifs : la structure se lit aux nœuds, pas aux arêtes. */
+.graph-edge {
+  stroke: var(--graph-edge);
+  stroke-width: 1;
+}
+.graph-edge.muted {
+  opacity: 0.25;
+}
+.graph-node {
+  cursor: pointer;
+}
+.graph-node.muted {
+  opacity: 0.25;
+}
+.graph-dot {
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+/* Un cercle non rempli distingue les autres dossiers sans introduire une
+   quatrième teinte, que le contrôle « toutes paires » refuserait. */
+.graph-dot.other {
+  stroke: var(--graph-other);
+  stroke-width: 1.5;
+}
+.graph-node:hover .graph-dot {
+  stroke: var(--text);
+}
+/* Le texte porte l'encre, jamais la couleur de la série. */
+/* La taille est posée par le rendu, en unités du repère, pour rester
+   constante à l'écran quel que soit le zoom. */
+.graph-label {
+  fill: var(--text);
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-linejoin: round;
+}
+
+/* Graphe en plein écran : un panneau latéral est trop étroit pour lire une
+   structure de plusieurs dizaines de notes. */
+.modal-large {
+  width: min(1200px, 100%);
+  height: min(860px, 88vh);
+  max-height: 88vh;
+}
+.modal-large .graph-wrap {
+  flex: 1;
+  min-height: 0;
 }

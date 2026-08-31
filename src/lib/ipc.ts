@@ -35,6 +35,7 @@ import type {
   LoadedPlugin,
   McpInfo,
   PatchSavePayload,
+  VaultGraph,
   RemoteStatus,
   UiPatch,
   RuntimeScan,
@@ -173,6 +174,15 @@ export const teamDelete = (teamId: string): Promise<void> =>
 /** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
 export const teamRun = (sessionId: string, objective: string): Promise<void> =>
   call<void>("team_run", { sessionId, objective });
+
+// ===== Graphe du coffre =====
+
+/** Notes, liens résolus, liens cassés et étiquettes du coffre. */
+export const vaultGraph = (): Promise<VaultGraph> => call<VaultGraph>("vault_graph");
+
+/** Ouvre une note dans Obsidian ; renvoie l'URI utilisée. */
+export const vaultOpenExternal = (relPath: string): Promise<string> =>
+  call<string>("vault_open_external", { relPath });
 
 // ===== Outils MCP =====
 
