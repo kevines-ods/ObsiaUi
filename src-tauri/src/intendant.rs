@@ -2,8 +2,8 @@
 //!
 //! Il ne vient pas du coffre. Les agents du coffre décrivent un travail ;
 //! l'intendant, lui, agit sur ObsiaUi — thème, sessions, équipes,
-//! planifications, serveur distant. Il porte un nom distinct de l'agent
-//! `assistant` du coffre pour qu'on ne les confonde jamais.
+//! planifications, déclarations MCP, serveur distant. Il porte un nom distinct
+//! de l'agent `assistant` du coffre pour qu'on ne les confonde jamais.
 //!
 //! # Comment il agit
 //!
@@ -23,7 +23,9 @@
 //! - **les clés d'API et le jeton distant** — un secret ne se manipule pas
 //!   par une phrase mal comprise ;
 //! - **l'écriture dans le coffre** hors `brouillon/`, que la sandbox refuse
-//!   de toute façon.
+//!   de toute façon. La seule action qui écrit, `mcp`, vise `brouillon/` :
+//!   un outil MCP donne des accès, et le contrat veut qu'ils soient relus
+//!   avant d'entrer dans le coffre.
 //!
 //! # Aperçu avant exécution
 //!
@@ -87,6 +89,20 @@ pub enum Action {
     },
     /// Applique ou retire un patch existant.
     PatchActif { patch_id: String, enabled: bool },
+    /// Rédige une déclaration d'outil MCP dans `brouillon/`.
+    ///
+    /// Jamais dans `IA/MCP/` : le coffre est en lecture seule hors
+    /// `brouillon/`, et donner à des agents un accès que personne n'a relu
+    /// serait exactement le geste que le contrat interdit. L'humain déplace
+    /// la note après lecture.
+    Mcp {
+        name: String,
+        #[serde(default)]
+        description: String,
+        /// Corps de la note : à quoi sert l'outil, comment le brancher.
+        #[serde(default)]
+        body: String,
+    },
     /// Démarre ou arrête le serveur distant.
     Distant { enabled: bool },
 }
@@ -142,6 +158,17 @@ impl Action {
                 } else {
                     format!("Retirer le patch {patch_id}")
                 }
+            }
+            Action::Mcp { name, .. } => {
+                // Le chemin exact, pas le dossier : le nom est translittéré en
+                // slug, et on ne retrouve pas « Chrome DevTools » en cherchant
+                // ce nom-là dans brouillon/.
+                format!(
+                    "Rédiger la déclaration MCP « {name} » dans \
+                     brouillon/IA/MCP/{}.md — à relire avant de l'entrer dans \
+                     le coffre",
+                    crate::session::slug(name)
+                )
             }
             Action::Distant { enabled } => {
                 if *enabled {
@@ -214,6 +241,13 @@ impl Action {
                     Ok(())
                 }
             }
+            Action::Mcp { name, .. } => {
+                if name.trim().is_empty() {
+                    Err("nom d'outil MCP requis".into())
+                } else {
+                    Ok(())
+                }
+            }
             Action::Distant { .. } => Ok(()),
         }
     }
@@ -271,10 +305,11 @@ pub fn extraire_actions(reponse: &str) -> Result<Option<Proposition>, String> {
 
 /// Prompt système de l'intendant.
 ///
-/// La liste des agents et des fournisseurs y est injectée : sans elle, le
-/// modèle invente des noms plausibles et propose des actions qui échouent à
-/// la validation.
-pub fn prompt(agents: &[String], fournisseurs: &[(String, Vec<String>)]) -> String {
+/// La liste des agents, des fournisseurs et des outils MCP y est injectée :
+/// sans elle, le modèle invente des noms plausibles et propose des actions qui
+/// échouent à la validation. Les MCP servent surtout à ne pas redéclarer un
+/// outil que le coffre possède déjà.
+pub fn prompt(agents: &[String], fournisseurs: &[(String, Vec<String>)], mcp: &[String]) -> String {
     let mut modeles = Vec::new();
     for (fournisseur, liste) in fournisseurs {
         for m in liste.iter().take(6) {
@@ -293,6 +328,7 @@ serveur distant. Tu n'es pas un agent du coffre et tu ne rédiges pas de notes.
 
 Agents disponibles : {agents}
 Modèles disponibles (fournisseur/modèle) : {modeles}
+Outils MCP déjà déclarés dans le coffre : {mcp}
 
 ## Comment tu réponds
 
@@ -320,6 +356,12 @@ Une question qui n'appelle aucun changement se répond sans bloc JSON.
   (`{{"panel-bg": "#101216"}}`). Valeurs simples uniquement : ni `url(`, ni
   `@import`, ni point-virgule.
 - `patch-actif` — `patchId` et `enabled`.
+- `mcp` — `name`, `description`, `body`. Rédige la déclaration d'un outil MCP.
+  Elle part dans `brouillon/IA/MCP/`, **jamais** dans `IA/MCP/` : le coffre est
+  en lecture seule hors brouillon, et un outil donne des accès qui doivent
+  être relus avant d'entrer. Dis-le dans ta réponse plutôt que de laisser
+  croire que l'outil est déjà branché. Dans `body`, mets ce qu'il faut pour le
+  brancher : à quoi il sert, la commande ou l'URL du serveur, ce qu'il expose.
 - `distant` — `enabled`.
 
 ## Règles
@@ -333,6 +375,11 @@ Une question qui n'appelle aucun changement se répond sans bloc JSON.
 - Tu ne peux ni activer un plugin, ni lire ou changer une clé d'API, ni
   toucher au jeton du serveur distant. Si on te le demande, explique que ces
   gestes passent par les réglages, volontairement.
+- Tu n'écris nulle part dans le coffre sauf `brouillon/`, et seule l'action
+  `mcp` y écrit. Un outil MCP déjà présent dans la liste ci-dessus se
+  redéclare rarement : demande plutôt s'il faut le modifier.
+- Ne mets jamais de clé, de jeton ni de mot de passe dans une déclaration MCP.
+  Décris la variable d'environnement à définir, pas sa valeur.
 "##,
         agents = if agents.is_empty() {
             "(aucun — le coffre est introuvable)".to_string()
@@ -343,6 +390,11 @@ Une question qui n'appelle aucun changement se répond sans bloc JSON.
             "(aucun — lance la détection des moteurs locaux)".to_string()
         } else {
             modeles.join(", ")
+        },
+        mcp = if mcp.is_empty() {
+            "(aucun)".to_string()
+        } else {
+            mcp.join(", ")
         },
     )
 }
@@ -495,6 +547,79 @@ mod tests {
         assert!(d.contains("6 tours"));
     }
 
+    // ===== Action MCP =====
+
+    #[test]
+    fn extrait_une_declaration_mcp() {
+        let p = extraire_actions(&bloc(
+            r#"[{"action":"mcp","name":"chrome-devtools","description":"Pilote un navigateur.","body":"npx @modelcontextprotocol/server-chrome"}]"#,
+        ))
+        .unwrap()
+        .expect("une proposition attendue");
+        assert_eq!(
+            p.actions,
+            vec![Action::Mcp {
+                name: "chrome-devtools".into(),
+                description: "Pilote un navigateur.".into(),
+                body: "npx @modelcontextprotocol/server-chrome".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn la_description_mcp_dit_que_ca_part_en_brouillon() {
+        // Sans cela on croit l'outil branché alors qu'il attend une relecture.
+        let d = Action::Mcp {
+            name: "git-hub".into(),
+            description: String::new(),
+            body: String::new(),
+        }
+        .describe();
+        assert!(d.contains("git-hub"));
+        assert!(d.contains("brouillon/IA/MCP/git-hub.md"));
+    }
+
+    #[test]
+    fn la_description_mcp_donne_le_chemin_translittere() {
+        // « Chrome DevTools » ne se retrouve pas sous ce nom dans brouillon/ :
+        // c'est le slug qui sert de nom de fichier.
+        let d = Action::Mcp {
+            name: "Chrome DevTools".into(),
+            description: String::new(),
+            body: String::new(),
+        }
+        .describe();
+        assert!(d.contains("brouillon/IA/MCP/chrome-devtools.md"), "{d}");
+    }
+
+    #[test]
+    fn une_declaration_mcp_sans_nom_est_refusee() {
+        assert!(Action::Mcp {
+            name: "   ".into(),
+            description: String::new(),
+            body: String::new(),
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn le_corps_et_la_description_mcp_sont_facultatifs() {
+        // Un modèle qui ne renseigne que le nom ne doit pas faire échouer le
+        // tour entier : la note part avec un corps vide, à compléter.
+        let p = extraire_actions(&bloc(r#"[{"action":"mcp","name":"outil"}]"#))
+            .unwrap()
+            .expect("une proposition attendue");
+        assert_eq!(
+            p.actions,
+            vec![Action::Mcp {
+                name: "outil".into(),
+                description: String::new(),
+                body: String::new(),
+            }]
+        );
+    }
+
     // ===== Prompt =====
 
     #[test]
@@ -504,21 +629,24 @@ mod tests {
         let p = prompt(
             &["assistant".into(), "relecteur".into()],
             &[("ollama".into(), vec!["qwen3:8b".into()])],
+            &["git-hub".into()],
         );
         assert!(p.contains("assistant, relecteur"));
         assert!(p.contains("ollama/qwen3:8b"));
+        // Sans la liste des MCP existants, il en redéclare un déjà présent.
+        assert!(p.contains("git-hub"));
     }
 
     #[test]
     fn le_prompt_dit_ce_qui_lui_est_interdit() {
-        let p = prompt(&[], &[]);
+        let p = prompt(&[], &[], &[]);
         assert!(p.contains("plugin"));
         assert!(p.contains("clé d'API") || p.contains("clé d’API"));
     }
 
     #[test]
     fn le_prompt_reste_exploitable_sans_coffre_ni_moteur() {
-        let p = prompt(&[], &[]);
+        let p = prompt(&[], &[], &[]);
         assert!(p.contains("aucun"));
     }
 }

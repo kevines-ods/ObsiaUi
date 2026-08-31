@@ -126,6 +126,14 @@ impl VaultState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn coffre() -> (tempfile::TempDir, VaultState) {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("brouillon")).unwrap();
+        let state = VaultState::pour_tests(dir.path().canonicalize().unwrap());
+        (dir, state)
+    }
 
     #[test]
     fn lit_le_nom_et_la_description_du_frontmatter() {
@@ -155,5 +163,45 @@ mod tests {
     fn un_nom_vide_ne_remplace_pas_le_nom_de_fichier() {
         let (nom, _) = parse_mcp("---\nname: \"  \"\n---\n", "vrai-nom.md");
         assert_eq!(nom, "vrai-nom");
+    }
+
+    // ===== Rédaction =====
+
+    #[test]
+    fn une_declaration_part_en_brouillon_jamais_dans_ia() {
+        // C'est la garantie qui compte : un outil MCP donne des accès, et le
+        // contrat veut qu'ils soient relus avant d'entrer dans le coffre.
+        let (dir, coffre) = coffre();
+        let chemin = coffre
+            .mcp_draft("Chrome DevTools", "Pilote un navigateur.", "npx serveur")
+            .unwrap();
+        assert_eq!(chemin, "brouillon/IA/MCP/chrome-devtools.md");
+        assert!(dir.path().join(&chemin).is_file());
+        assert!(!dir.path().join("IA/MCP/chrome-devtools.md").exists());
+
+        let ecrit = fs::read_to_string(dir.path().join(&chemin)).unwrap();
+        assert!(ecrit.contains("kind: mcp"));
+        assert!(ecrit.contains("Pilote un navigateur."));
+        assert!(ecrit.contains("npx serveur"));
+    }
+
+    #[test]
+    fn une_description_multiligne_ne_casse_pas_le_frontmatter() {
+        // Un saut de ligne dans une valeur YAML non citée coupe le document :
+        // la note serait listée sans nom ni description.
+        let (dir, coffre) = coffre();
+        let chemin = coffre
+            .mcp_draft("outil", "première ligne\nseconde ligne", "")
+            .unwrap();
+        let ecrit = fs::read_to_string(dir.path().join(&chemin)).unwrap();
+        let (nom, desc) = parse_mcp(&ecrit, "outil.md");
+        assert_eq!(nom, "outil");
+        assert_eq!(desc, "première ligne seconde ligne");
+    }
+
+    #[test]
+    fn un_nom_vide_est_refuse() {
+        let (_dir, coffre) = coffre();
+        assert!(coffre.mcp_draft("   ", "", "").is_err());
     }
 }
