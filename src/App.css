@@ -1107,3 +1107,27 @@ textarea {
   flex: 1;
   min-height: 0;
 }
+
+/* Actions proposées par l'intendant, en attente de validation. */
+.proposition {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 900px;
+}
+.proposition-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.proposition-list {
+  list-style: disc;
+  padding-left: 18px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

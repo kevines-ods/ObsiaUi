@@ -33,8 +33,11 @@ import type {
   PlanUpdateEvent,
   InstalledPlugin,
   LoadedPlugin,
+  ActionResult,
+  IntendantAction,
   McpInfo,
   PatchSavePayload,
+  Proposition,
   VaultGraph,
   RemoteStatus,
   UiPatch,
@@ -174,6 +177,25 @@ export const teamDelete = (teamId: string): Promise<void> =>
 /** Lance l'équipe de la session sur un objectif ; réponses via `session:*`. */
 export const teamRun = (sessionId: string, objective: string): Promise<void> =>
   call<void>("team_run", { sessionId, objective });
+
+// ===== Intendant =====
+
+/** Prompt système de l'intendant, tel qu'il sera envoyé. */
+export const intendantPrompt = (): Promise<string> => call<string>("intendant_prompt");
+
+/**
+ * Envoie un message à l'intendant. Rien n'est appliqué : les actions
+ * proposées reviennent pour validation.
+ */
+export const intendantSend = (
+  sessionId: string,
+  content: string,
+): Promise<Proposition | null> =>
+  call<Proposition | null>("intendant_send", { sessionId, content });
+
+/** Applique les actions validées ; le résultat est rendu action par action. */
+export const intendantApply = (actions: IntendantAction[]): Promise<ActionResult[]> =>
+  call<ActionResult[]>("intendant_apply", { actions });
 
 // ===== Graphe du coffre =====
 

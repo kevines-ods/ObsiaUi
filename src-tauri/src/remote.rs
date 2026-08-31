@@ -437,6 +437,7 @@ pub async fn dispatch(h: &Harness, commande: &str, p: Value) -> Result<Value, St
                 &h.vault,
                 a.session_id,
                 a.content,
+                None,
             )
             .await?;
             Ok(Value::Null)

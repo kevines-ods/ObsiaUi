@@ -393,6 +393,44 @@ export interface LoadedPlugin extends InstalledPlugin {
   allowedCommands: string[];
 }
 
+// ===== Intendant (intendant.rs) =====
+
+/** Nom de l'agent intégré, distinct des agents du coffre. */
+export const INTENDANT = "intendant";
+
+/**
+ * Action proposée par l'intendant. Union discriminée sur `action`,
+ * sérialisée en kebab-case côté Rust.
+ */
+export type IntendantAction =
+  | { action: "theme"; theme: Theme }
+  | { action: "fournisseur-defaut"; providerId: string }
+  | { action: "session"; agent?: string | null; provider?: string | null; model: string }
+  | {
+      action: "equipe";
+      name: string;
+      description: string;
+      members: TeamMember[];
+      strategy: TeamStrategy;
+      maxTurns: number;
+    }
+  | { action: "planification"; title: string; objective: string; steps: PlanStep[] }
+  | { action: "patch"; name: string; description: string; theme: Record<string, string> }
+  | { action: "patch-actif"; patchId: string; enabled: boolean }
+  | { action: "distant"; enabled: boolean };
+
+/** Actions proposées, avec leur description en clair. */
+export interface Proposition {
+  actions: IntendantAction[];
+  descriptions: string[];
+}
+
+export interface ActionResult {
+  description: string;
+  ok: boolean;
+  error?: string | null;
+}
+
 // ===== Graphe du coffre (graph.rs = camelCase) =====
 
 export interface GraphNode {

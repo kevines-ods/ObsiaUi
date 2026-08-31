@@ -26,6 +26,10 @@ export default function ChatZone(): React.JSX.Element {
     busy,
     errors,
     speaking,
+    propositions,
+    resultats,
+    applyProposition,
+    dismissProposition,
     teams,
     loading,
     createSession,
@@ -43,6 +47,8 @@ export default function ChatZone(): React.JSX.Element {
   const erreur = activeId ? errors[activeId] : errors.__global;
   const agent = agents.find((a) => a.name === active?.agent);
   const equipe = teams.find((t) => t.id === active?.team);
+  const proposition = activeId ? propositions[activeId] : null;
+  const issues = activeId ? resultats[activeId] : null;
   // En session d'équipe, l'orateur change en cours d'exécution.
   const orateur = activeId ? speaking[activeId] : null;
 
@@ -141,6 +147,52 @@ export default function ChatZone(): React.JSX.Element {
               {partiel}
               <span className="stream-caret" aria-hidden="true" />
             </div>
+          </div>
+        )}
+
+        {/* Rien n'est appliqué à la lecture de la réponse : l'intendant
+            propose, l'utilisateur valide. */}
+        {proposition && activeId && (
+          <div className="proposition" role="group" aria-label="Actions proposées">
+            <div className="proposition-head">
+              L'intendant propose {proposition.actions.length} action
+              {proposition.actions.length > 1 ? "s" : ""}
+            </div>
+            <ul className="proposition-list">
+              {proposition.descriptions.map((d, i) => (
+                <li key={i}>{d}</li>
+              ))}
+            </ul>
+            <div className="team-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-mini"
+                onClick={() => void applyProposition(activeId)}
+              >
+                Appliquer
+              </button>
+              <button
+                type="button"
+                className="btn btn-mini"
+                onClick={() => dismissProposition(activeId)}
+              >
+                Ignorer
+              </button>
+            </div>
+          </div>
+        )}
+
+        {issues && issues.length > 0 && (
+          <div className="proposition" role="status">
+            {issues.map((r, i) => (
+              <div key={i} className="cp-row">
+                <span className={`badge ${r.ok ? "badge-ok" : "badge-err"}`}>
+                  {r.ok ? "fait" : "refusé"}
+                </span>
+                <span className="cp-label">{r.description}</span>
+                {r.error && <span className="runtime-meta">{r.error}</span>}
+              </div>
+            ))}
           </div>
         )}
 
