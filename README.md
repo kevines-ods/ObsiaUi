@@ -1,5 +1,14 @@
 # ObsiaUi
 
+> ### ⚠️ Projet expérimental — gelé
+>
+> Ce dépôt est une **tentative** d'interface maison pour le coffre
+> [OBSIA](https://github.com/kevines-ods/OBSIA). Il n'est plus développé.
+>
+> OBSIA se veut **agnostique du harness** : le coffre s'utilise avec des outils
+> existants (Claude Code, OpenCode, AionUi, OpenClaw…). Ce dépôt est conservé
+> comme expérience. Pour l'usage réel, voir **OBSIA**.
+
 Interface graphique native Linux pour le coffre [OBSIA](https://github.com/kevines-ods/OBSIA).
 
 Le coffre décrit *quoi* faire — agents, skills, mémoire, en Markdown. ObsiaUi
@@ -87,9 +96,9 @@ minutes ; les suivants sont immédiats. Aucun outil supplémentaire n'est
 nécessaire : l'interface compilée est embarquée dans le binaire.
 
 Le coffre est cherché dans cet ordre : `OBSIA_VAULT_PATH`, le chemin donné dans
-la configuration, puis les emplacements usuels — dont `../OBSIA/obsia_vault`
-quand les deux dépôts sont clonés côte à côte. Pour désigner un autre
-emplacement :
+la configuration, puis les emplacements usuels — dont le dossier parent
+d'`OBSIA/`, puisque le dépôt OBSIA se clone à la racine du coffre
+(`Mon coffre/OBSIA/`). Pour désigner un autre emplacement :
 
 ```bash
 OBSIA_VAULT_PATH=/chemin/vers/mon/coffre cargo run --release
